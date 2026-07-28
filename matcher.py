@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 
 from rapidfuzz import fuzz
@@ -22,6 +23,36 @@ WEIGHTS = {"title": 0.4, "artist": 0.3, "duration": 0.2, "album": 0.1}
 DURATION_TOLERANCE_MS = 10_000  # 10s de margen
 RECOMMENDED_THRESHOLD = 0.9
 
+# Per-provider limits: (query_limit, min_results_for_fallback)
+_PROVIDER_LIMITS: dict[str, tuple[int, int]] = {
+    "deezer": (1, 1),
+    "apple": (1, 1),
+    "lastfm": (3, 3),
+    "musicbrainz": (3, 3),
+}
+_DEFAULT_PROVIDER_LIMITS = (5, 1)
+
+MERGE_MIN_CONFIDENCE = 0.550
+
+_NOISE_SEPARATORS = re.compile(r"\s*[,;/&]\s*")
+_MULTI_ARTIST_SEP = re.compile(r"\s*[&,+]\s*")
+_NOISE_SUFFIX = re.compile(
+    r"\s*[-\u2013\u2014]\s*(?:written?(?:\s+officially)?\s+by|writer\s*[:\u2013\u2014]|composed?\s+by|composer\s*[:\u2013\u2014]|produced?\s+by|producer\s*[:\u2013\u2014]).*$",
+    re.IGNORECASE,
+)
+_NOISE_SUFFIX_BRACKET = re.compile(
+    r"\s*[\(\[][?\w\s]*(?:written\s+by|composed\s+by|produced\s+by|written\sofficially|official(?:ly)?\s+(?:by|video|audio|music\s*video))[\)\]]?\s*$",
+    re.IGNORECASE,
+)
+_FEATURED_PATTERN = re.compile(
+    r"\s*[\(\[](.*?(?:feat\.?|ft\.?|featuring).*?)[\)\]]",
+    re.IGNORECASE,
+)
+_SUFFIX_NOISE = re.compile(
+    r"\s*[\(\[](?:original|remix|version|live|acoustic|radio|edit|deluxe|explicit|clean|mono|stereo|remastered|remaster|single|album|bonus)[\)\]]?\s*$",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class FileInfo:
@@ -31,6 +62,60 @@ class FileInfo:
     artist: str
     album: str = ""
     duration_ms: int = 0
+
+
+def _normalize_artist(raw: str | None) -> str:
+    """Clean noisy artist tags commonly found in YouTube Music files.
+
+    - Strips songwriter/composer credits accidentally stored in artist
+      (e.g. "Artist - Writer: Someone" → "Artist").
+    - Preserves featured artists in standard positions.
+    - Collapses repeated separators.
+    - Falls back to original when cleaning leaves nothing meaningful.
+    """
+    if not raw:
+        return ""
+
+    text = raw.strip()
+    if not text:
+        return ""
+
+    cleaned = _NOISE_SUFFIX.sub("", text).strip()
+    if cleaned:
+        text = cleaned
+
+    cleaned = _NOISE_SUFFIX_BRACKET.sub("", text).strip()
+    if cleaned:
+        text = cleaned
+
+    for pattern in (_SUFFIX_NOISE,):
+        cleaned = pattern.sub("", text).strip()
+        if cleaned and cleaned.lower() != text.lower():
+            text = cleaned
+            break
+
+    parts = [p.strip() for p in _NOISE_SEPARATORS.split(text) if p.strip()]
+    if not parts:
+        return raw.strip()
+
+    noisy_prefixes = re.compile(
+        r"^(?:writer|written|composer|composed|producer|produced|remixed?\s+by|arranged?\s+by):\s*",
+        re.IGNORECASE,
+    )
+    filtered = [p for p in parts if not noisy_prefixes.match(p)]
+
+    if not filtered:
+        return parts[0] if parts else raw.strip()
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for part in filtered:
+        key = part.lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(part)
+
+    return ", ".join(deduped)
 
 
 def _string_similarity(a: str, b: str) -> float:
@@ -60,34 +145,98 @@ def score_candidate(file_info: FileInfo, candidate: MatchCandidate) -> float:
     )
 
 
+async def _query_single_provider(
+    provider: MusicProvider,
+    title: str,
+    artist: str,
+    limit: int,
+) -> list[MatchCandidate]:
+    """Query a single provider, returning raw candidates."""
+    try:
+        return await provider.search(title, artist, limit)
+    except Exception as e:
+        logger.warning("%s tiró una excepción no manejada: %r", provider.name, e)
+        return []
+
+
+async def _query_provider_with_fallback(
+    provider: MusicProvider,
+    title: str,
+    normalized_artist: str,
+    limit: int,
+    artist_parts: list[str],
+    min_results: int = 3,
+) -> list[MatchCandidate]:
+    """Query a single provider with per-provider fallback strategies.
+
+    1. Full artist query.
+    2. If < min_results and multi-artist, try each artist individually.
+    """
+    results = await _query_single_provider(provider, title, normalized_artist, limit)
+    if len(results) >= min_results:
+        return results
+
+    logger.info(
+        "%s devolvió %d candidato(s) < %d; intentando fallback",
+        provider.name, len(results), min_results,
+    )
+
+    if len(artist_parts) > 1:
+        for part in artist_parts:
+            part_results = await _query_single_provider(provider, title, part, limit)
+            results.extend(part_results)
+            if len(results) >= min_results:
+                return results
+
+    return results
+
+
 async def find_matches(
     file_info: FileInfo,
     providers: list[MusicProvider],
-    limit_per_provider: int = 5,
 ) -> list[MatchCandidate]:
     """
-    Dispara todos los providers en paralelo, calcula confianza para cada
-    candidato devuelto, y retorna la lista completa ordenada de mayor a
-    menor confianza. Si un provider falla, simplemente no aporta
-    candidatos — no rompe el resto.
+    Dispara todos los providers en paralelo con fallback por provider:
+    si un provider devuelve menos de ``min_results`` candidatos, se reintenta
+    con cada artista por separado (si hay múltiples). Calcula confianza para
+    cada candidato y retorna la lista completa ordenada de mayor a menor
+    confianza.
     """
+    normalized_artist = _normalize_artist(file_info.artist)
+    artist_parts = [a.strip() for a in _MULTI_ARTIST_SEP.split(normalized_artist) if a.strip()]
+
     results = await asyncio.gather(
-        *(p.search(file_info.title, file_info.artist, limit_per_provider) for p in providers),
+        *(
+            _query_provider_with_fallback(
+                p, file_info.title, normalized_artist,
+                limit=_PROVIDER_LIMITS.get(p.name, _DEFAULT_PROVIDER_LIMITS)[0],
+                artist_parts=artist_parts,
+                min_results=_PROVIDER_LIMITS.get(p.name, _DEFAULT_PROVIDER_LIMITS)[1],
+            )
+            for p in providers
+        ),
         return_exceptions=True,
     )
 
-    all_candidates: list[MatchCandidate] = []
+    raw: list[MatchCandidate] = []
     for provider, result in zip(providers, results):
         if isinstance(result, Exception):
             logger.warning("%s tiró una excepción no manejada: %r", provider.name, result)
             continue
-        logger.info("%s devolvió %d candidato(s)", provider.name, len(result))
-        for candidate in result:
-            candidate["confidence"] = round(score_candidate(file_info, candidate), 4)
-            all_candidates.append(candidate)
+        logger.info("%s devolvió %d candidato(s) en total", provider.name, len(result))
+        raw.extend(result)
 
-    all_candidates.sort(key=lambda c: c["confidence"] or 0.0, reverse=True)
-    return all_candidates
+    if not raw:
+        return []
+
+    return _score_and_sort(file_info, raw)
+
+
+def _score_and_sort(file_info: FileInfo, candidates: list[MatchCandidate]) -> list[MatchCandidate]:
+    for c in candidates:
+        c["confidence"] = round(score_candidate(file_info, c), 4)
+    candidates.sort(key=lambda c: c["confidence"] or 0.0, reverse=True)
+    return candidates
 
 
 def best_match_is_recommended(candidates: list[MatchCandidate]) -> bool:
@@ -133,10 +282,25 @@ def merge_missing_fields(
     merged: MatchCandidate = dict(chosen)  # type: ignore[assignment]
     others = [c for c in all_candidates if c is not chosen]
 
+    # Upgrade artist if another candidate has a more complete version
+    # (e.g. chosen="Pressure 9X19", other="Pressure 9X19, YOVNGCHIMI")
+    chosen_artist = (merged.get("artist") or "").strip().lower()
+    if chosen_artist:
+        for other in others:
+            if (other.get("confidence") or 0.0) < MERGE_MIN_CONFIDENCE:
+                continue
+            other_artist = (other.get("artist") or "").strip().lower()
+            if other_artist and chosen_artist in other_artist and chosen_artist != other_artist:
+                merged["artist"] = other["artist"]  # type: ignore[literal-required]
+                break
+
     for field in FILLABLE_FIELDS:
-        if merged.get(field) is not None:
+        current = merged.get(field)
+        if current is not None and current != "":
             continue
         for other in others:
+            if (other.get("confidence") or 0.0) < MERGE_MIN_CONFIDENCE:
+                continue
             value = other.get(field)
             if value is not None and value != "":
                 merged[field] = value  # type: ignore[literal-required]
