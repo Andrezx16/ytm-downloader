@@ -5,9 +5,13 @@ Ejemplo:
   python test.py "C:\\Music\\Believer.mp3"
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import asyncio
 import logging
-import sys
 
 from dotenv import find_dotenv, load_dotenv
 

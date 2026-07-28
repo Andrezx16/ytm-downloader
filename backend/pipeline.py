@@ -57,6 +57,10 @@ class MetadataPipeline:
             ]
         )
 
+    @property
+    def providers(self) -> Sequence[MusicProvider]:
+        return tuple(self._providers)
+
     async def __aenter__(self) -> "MetadataPipeline":
         return self
 

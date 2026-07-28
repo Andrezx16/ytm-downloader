@@ -5,12 +5,15 @@ Ejemplo:
   python test_playlist.py "https://www.youtube.com/playlist?list=PLrEnWoR732-BHrPp_Pm8_VleD68f9s14-" --summary
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import logging
-import sys
 import threading
 import time
-from pathlib import Path
 
 from playlist_downloader import (
     PlaylistDownloadOptions,
