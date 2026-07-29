@@ -4,7 +4,7 @@ import { HomePage } from "@/pages/HomePage";
 import { SearchPage } from "@/features/search";
 import { PlaylistPage } from "@/features/playlist";
 import { DownloadsPage } from "@/features/downloads";
-import { MetadataPage } from "@/pages/MetadataPage";
+import { MetadataPage } from "@/features/metadata";
 import { SettingsPage } from "@/pages/SettingsPage";
 
 export function AppRouter() {

@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
 from rapidfuzz import fuzz
@@ -167,26 +169,24 @@ async def _query_provider_with_fallback(
     artist_parts: list[str],
     min_results: int = 3,
 ) -> list[MatchCandidate]:
-    """Query a single provider with per-provider fallback strategies.
+    """Query a single provider with bounded fallback.
 
     1. Full artist query.
-    2. If < min_results and multi-artist, try each artist individually.
+    2. If < min_results and multi-artist, try ONLY the primary artist.
     """
     results = await _query_single_provider(provider, title, normalized_artist, limit)
     if len(results) >= min_results:
         return results
 
     logger.info(
-        "%s devolvió %d candidato(s) < %d; intentando fallback",
+        "%s devolvió %d candidato(s) < %d; intentando fallback con artista principal",
         provider.name, len(results), min_results,
     )
 
     if len(artist_parts) > 1:
-        for part in artist_parts:
-            part_results = await _query_single_provider(provider, title, part, limit)
-            results.extend(part_results)
-            if len(results) >= min_results:
-                return results
+        primary = artist_parts[0]
+        part_results = await _query_single_provider(provider, title, primary, limit)
+        results.extend(part_results)
 
     return results
 
@@ -230,6 +230,70 @@ async def find_matches(
         return []
 
     return _score_and_sort(file_info, raw)
+
+
+async def find_matches_stream(
+    file_info: FileInfo,
+    providers: list[MusicProvider],
+) -> AsyncGenerator[dict, None]:
+    """
+    Like find_matches but yields events as each provider completes.
+
+    Yields dicts with:
+      {"event": "provider", "source": name, "matches": [...], "elapsed_time": float}
+      {"event": "complete", "all_matches": [...], "elapsed_time": float}
+
+    Uses asyncio.wait instead of as_completed to avoid unawaited
+    wrapper coroutine warnings.
+    """
+    started = time.perf_counter()
+    normalized_artist = _normalize_artist(file_info.artist)
+    artist_parts = [a.strip() for a in _MULTI_ARTIST_SEP.split(normalized_artist) if a.strip()]
+
+    tasks: dict[asyncio.Task, str] = {}
+    for p in providers:
+        task = asyncio.create_task(
+            _query_provider_with_fallback(
+                p, file_info.title, normalized_artist,
+                limit=_PROVIDER_LIMITS.get(p.name, _DEFAULT_PROVIDER_LIMITS)[0],
+                artist_parts=artist_parts,
+                min_results=_PROVIDER_LIMITS.get(p.name, _DEFAULT_PROVIDER_LIMITS)[1],
+            )
+        )
+        tasks[task] = p.name
+
+    raw: list[MatchCandidate] = []
+    pending = set(tasks.keys())
+
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            name = tasks[task]
+            try:
+                result = task.result()
+                logger.info("%s devolvió %d candidato(s) (stream)", name, len(result))
+                raw.extend(result)
+                yield {
+                    "event": "provider",
+                    "source": name,
+                    "matches": result,
+                    "elapsed_time": time.perf_counter() - started,
+                }
+            except Exception as exc:
+                logger.warning("%s tiró una excepción no manejada (stream): %r", name, exc)
+                yield {
+                    "event": "provider",
+                    "source": name,
+                    "matches": [],
+                    "elapsed_time": time.perf_counter() - started,
+                }
+
+    scored = _score_and_sort(file_info, raw) if raw else []
+    yield {
+        "event": "complete",
+        "all_matches": scored,
+        "elapsed_time": time.perf_counter() - started,
+    }
 
 
 def _score_and_sort(file_info: FileInfo, candidates: list[MatchCandidate]) -> list[MatchCandidate]:

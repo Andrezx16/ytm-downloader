@@ -1,21 +1,79 @@
+import { API_BASE_URL } from "./client";
 import { request } from "./client";
+import { ApiError } from "./errors";
 
 // --- Types ---
+
+export interface FolderItem {
+  name: string;
+  path: string;
+}
+
+export interface FolderBrowseResponse {
+  path: string;
+  parent: string | null;
+  folders: FolderItem[];
+}
+
+export interface ScanRequest {
+  path: string;
+}
+
+export interface ScanFile {
+  path: string;
+  name: string;
+  size: number;
+}
 
 export interface AnalyzeRequest {
   path: string;
 }
 
+export interface FileInfo {
+  title: string;
+  artist: string;
+  album: string;
+  duration_ms: number;
+}
+
+export interface MatchCandidate {
+  source: string;
+  source_id: string | null;
+  title: string;
+  artist: string;
+  album: string;
+  album_artist: string | null;
+  year: number | null;
+  genre: string | null;
+  track_number: number | null;
+  disc_number: number | null;
+  isrc: string | null;
+  composer: string | null;
+  duration_ms: number;
+  cover_url: string | null;
+  confidence: number | null;
+}
+
 export interface AnalyzeResponse {
-  success: boolean;
   source_file: string;
-  metadata: Record<string, unknown>;
-  matches: unknown[];
-  selected_match: unknown | null;
-  lyrics: string | null;
+  file_info: FileInfo;
+  matches: MatchCandidate[];
   warnings: string[];
   errors: string[];
   elapsed_time: number;
+}
+
+export interface SelectRequest {
+  path: string;
+  matches: MatchCandidate[];
+  selected_index: number;
+}
+
+export interface SelectResponse {
+  match: MatchCandidate;
+  lyrics: string | null;
+  warnings: string[];
+  errors: string[];
 }
 
 export interface EnrichRequest {
@@ -32,7 +90,10 @@ export interface EnrichResponse {
   result: {
     success: boolean;
     source_file: string;
+    file_info: FileInfo;
     metadata: Record<string, unknown>;
+    matches: MatchCandidate[];
+    selected_match: MatchCandidate | null;
     lyrics: string | null;
     warnings: string[];
     errors: string[];
@@ -50,8 +111,24 @@ export interface WriteRequest {
 
 // --- API ---
 
+export function scanFolder(params: ScanRequest, signal?: AbortSignal): Promise<ScanFile[]> {
+  return request<ScanFile[]>("/pipeline/scan", {
+    method: "POST",
+    body: JSON.stringify(params),
+    signal,
+  });
+}
+
 export function analyze(params: AnalyzeRequest, signal?: AbortSignal): Promise<AnalyzeResponse> {
   return request<AnalyzeResponse>("/pipeline/analyze", {
+    method: "POST",
+    body: JSON.stringify(params),
+    signal,
+  });
+}
+
+export function selectMatch(params: SelectRequest, signal?: AbortSignal): Promise<SelectResponse> {
+  return request<SelectResponse>("/pipeline/select", {
     method: "POST",
     body: JSON.stringify(params),
     signal,
@@ -72,4 +149,96 @@ export function write(params: WriteRequest, signal?: AbortSignal): Promise<void>
     body: JSON.stringify(params),
     signal,
   });
+}
+
+export function getFolders(path: string, signal?: AbortSignal): Promise<FolderBrowseResponse> {
+  const params = new URLSearchParams({ path });
+  return request<FolderBrowseResponse>(`/folders?${params}`, { signal });
+}
+
+// --- Streaming Types ---
+
+export interface ProviderDoneEvent {
+  event: "provider";
+  source: string;
+  matches: MatchCandidate[];
+  elapsed_time: number;
+}
+
+export interface AnalysisCompleteEvent {
+  event: "complete";
+  source_file: string;
+  file_info: FileInfo;
+  all_matches: MatchCandidate[];
+  warnings: string[];
+  errors: string[];
+  elapsed_time: number;
+}
+
+export interface AnalysisErrorEvent {
+  event: "error";
+  detail: string;
+}
+
+export type StreamEvent = ProviderDoneEvent | AnalysisCompleteEvent | AnalysisErrorEvent;
+
+// --- Streaming API ---
+
+export async function* analyzeStream(
+  params: AnalyzeRequest,
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+
+  const combinedSignal = signal
+    ? combineSignals(signal, controller.signal)
+    : controller.signal;
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/pipeline/analyze-stream`, {
+      method: "POST",
+      body: JSON.stringify(params),
+      headers: { "Content-Type": "application/json" },
+      signal: combinedSignal,
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.detail ?? res.statusText);
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed) {
+          yield JSON.parse(trimmed) as StreamEvent;
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+function combineSignals(external: AbortSignal, internal: AbortSignal): AbortSignal {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (external.aborted || internal.aborted) {
+    controller.abort();
+    return controller.signal;
+  }
+  external.addEventListener("abort", onAbort, { once: true });
+  internal.addEventListener("abort", onAbort, { once: true });
+  return controller.signal;
 }

@@ -7,6 +7,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 import asyncio
 import json
 import logging
@@ -67,6 +71,16 @@ class PipelineEnrichRequest(BaseModel):
     path: str
     selected_index: int | None = None
     write: bool = False
+
+
+class PipelineScanRequest(BaseModel):
+    path: str
+
+
+class PipelineSelectRequest(BaseModel):
+    path: str
+    matches: list[dict[str, Any]]
+    selected_index: int
 
 
 class PipelineWriteRequest(BaseModel):
@@ -385,6 +399,62 @@ async def analyze(request: PipelineAnalyzeRequest) -> Any:
     return result
 
 
+@router.post("/pipeline/analyze-stream")
+async def analyze_stream(request: PipelineAnalyzeRequest) -> StreamingResponse:
+    logger.info("pipeline_analyze_stream path=%s", request.path)
+
+    async def _event_generator():
+        try:
+            async for event in app.state.pipeline.analyze_stream(request.path):
+                yield json.dumps(event) + "\n"
+        except Exception as exc:
+            msg = str(exc)
+            if isinstance(exc, (FileNotFoundError, OSError)) or "No such file" in msg or "Permission denied" in msg:
+                yield json.dumps({"event": "error", "detail": f"File not accessible: {request.path}"}) + "\n"
+            else:
+                yield json.dumps({"event": "error", "detail": msg}) + "\n"
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/pipeline/select")
+async def select_match(request: PipelineSelectRequest) -> Any:
+    logger.info("pipeline_select path=%s index=%d", request.path, request.selected_index)
+    result = await app.state.pipeline.select_match(request.path, request.matches, request.selected_index)  # type: ignore[arg-type]
+    if result.errors:
+        raise HTTPException(status_code=400, detail=result.errors[0])
+    return result
+
+
+_AUDIO_EXTENSIONS = {".mp3", ".m4a", ".flac", ".ogg", ".wav", ".wma", ".aac"}
+
+
+@router.post("/pipeline/scan")
+async def scan_folder(request: PipelineScanRequest) -> list[dict[str, Any]]:
+    logger.info("pipeline_scan path=%s", request.path)
+    folder = Path(request.path)
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail=f"Folder not found: {request.path}")
+    files: list[dict[str, Any]] = []
+    for f in sorted(folder.iterdir()):
+        if f.is_file() and f.suffix.lower() in _AUDIO_EXTENSIONS:
+            stat = f.stat()
+            files.append({
+                "path": str(f),
+                "name": f.name,
+                "size": stat.st_size,
+            })
+    return files
+
+
 @router.post("/pipeline/enrich")
 async def enrich(request: PipelineEnrichRequest) -> JobResponse:
     logger.info("pipeline_enrich path=%s", request.path)
@@ -456,6 +526,37 @@ async def job_events(job_id: str) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/folders")
+async def list_folders(path: str = "") -> dict[str, Any]:
+    logger.info("list_folders path=%s", path)
+    if not path:
+        if platform.system() == "Windows":
+            import string
+            drives = []
+            for letter in string.ascii_uppercase:
+                drive = Path(f"{letter}:\\")
+                if drive.exists():
+                    drives.append({"name": f"{letter}:\\", "path": str(drive)})
+            return {"path": "", "parent": None, "folders": drives}
+        root = Path("/")
+        return {"path": "/", "parent": None, "folders": [{"name": "/", "path": "/"}]}
+
+    target = Path(path)
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a directory: {path}")
+
+    parent = str(target.parent) if str(target.parent) != str(target) else None
+    folders = []
+    try:
+        for item in sorted(target.iterdir()):
+            if item.is_dir() and not item.name.startswith("."):
+                folders.append({"name": item.name, "path": str(item)})
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"Permission denied: {path}")
+
+    return {"path": str(target), "parent": parent, "folders": folders}
 
 
 @router.post("/open-folder")

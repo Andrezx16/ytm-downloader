@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence, cast
 
 from extractor import read_file_info
 from lyrics import get_lyrics
-from matcher import FileInfo, find_matches, merge_missing_fields
+from matcher import FileInfo, find_matches, find_matches_stream, merge_missing_fields
 from providers.apple import AppleMusicProvider
 from providers.base import MatchCandidate, MusicProvider
 from providers.deezer import DeezerProvider
@@ -27,6 +28,14 @@ class MetadataAnalysis:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     elapsed_time: float = 0.0
+
+
+@dataclass(slots=True)
+class SelectResult:
+    match: MatchCandidate
+    lyrics: str | None
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -97,6 +106,64 @@ class MetadataPipeline:
             errors=errors,
             elapsed_time=elapsed_time,
         )
+
+    async def analyze_stream(self, path: str | Path) -> AsyncGenerator[dict, None]:
+        """Stream per-provider results, then final scored list."""
+        file_path = Path(path)
+        file_info = read_file_info(file_path)
+
+        async for event in find_matches_stream(file_info, self._providers):
+            if event["event"] == "complete":
+                matches = event["all_matches"]
+                warnings: list[str] = []
+                errors: list[str] = []
+                if not matches:
+                    warnings.append("No metadata candidates found")
+                yield {
+                    "event": "complete",
+                    "source_file": str(file_path),
+                    "file_info": {
+                        "title": file_info.title,
+                        "artist": file_info.artist,
+                        "album": file_info.album,
+                        "duration_ms": file_info.duration_ms,
+                    },
+                    "all_matches": matches,
+                    "warnings": warnings,
+                    "errors": errors,
+                    "elapsed_time": event["elapsed_time"],
+                }
+            else:
+                yield event
+
+    async def select_match(
+        self,
+        path: str | Path,
+        matches: list[MatchCandidate],
+        selected_index: int,
+    ) -> SelectResult:
+        warnings: list[str] = []
+        errors: list[str] = []
+
+        if not matches or selected_index < 0 or selected_index >= len(matches):
+            errors.append("Invalid candidate selection")
+            return SelectResult(match={}, lyrics=None, warnings=warnings, errors=errors)
+
+        selected = matches[selected_index]
+        merged = merge_missing_fields(selected, matches)
+        merged, deezer_warning = await self._apply_deezer_details(merged, matches)
+        if deezer_warning is not None:
+            warnings.append(deezer_warning)
+
+        lyrics: str | None = None
+        try:
+            lyrics = await get_lyrics(merged["title"], merged["artist"])
+        except Exception:
+            logger.exception("Lyrics fetch failed during select")
+        if lyrics is None:
+            warnings.append("Lyrics not found")
+
+        return SelectResult(match=merged, lyrics=lyrics, warnings=warnings, errors=errors)
 
     async def enrich_file(
         self,
@@ -232,4 +299,4 @@ class MetadataPipeline:
         return enriched, None
 
 
-__all__ = ["MetadataAnalysis", "MetadataPipeline", "PipelineResult"]
+__all__ = ["MetadataAnalysis", "MetadataPipeline", "PipelineResult", "SelectResult"]

@@ -42,6 +42,7 @@ class MusicBrainzProvider(MusicProvider):
 
         try:
             # Respeta el rate limit de 1 req/s de MusicBrainz.
+            # El sleep DENTRO del lock asegura que no se slippear requests.
             async with self._lock:
                 resp = await self._client.get("/recording", params=params)
                 await asyncio.sleep(1.0)
