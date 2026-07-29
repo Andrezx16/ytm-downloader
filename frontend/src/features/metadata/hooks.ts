@@ -9,6 +9,7 @@ import { matchToFields, EMPTY_FIELDS } from "./types";
 
 const FOLDER_HISTORY_KEY = "ytm-folder-history";
 const FOLDER_HISTORY_LIMIT = 10;
+const PREFETCH_DELAY_MS = 3000;
 
 export function useFolderHistory() {
   const [history, setHistory] = useLocalStorage<string[]>(FOLDER_HISTORY_KEY, []);
@@ -117,10 +118,15 @@ export function useMetadataFlow() {
   const queueRef = useRef<QueueEntry[]>([]);
   const currentIndexRef = useRef(0);
   const processingRef = useRef(false);
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefetchPromiseRef = useRef<Promise<boolean> | null>(null);
 
   // Sync refs
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+
+  // Prefetch ref (to avoid circular dependency with analyzeEntry)
+  const prefetchNextRef = useRef<() => void>(() => {});
 
   // Mutations
   const scanMutation = useScanFolder();
@@ -170,6 +176,7 @@ export function useMetadataFlow() {
       if (controller.signal.aborted) return false;
       entry.status = entry.matches.length > 0 ? "ready" : "error";
       if (entry.matches.length === 0) entry.error = "No candidates found";
+      if (entry.status === "ready") prefetchNextRef.current();
     } catch (err) {
       if (controller.signal.aborted) return false;
       entry.error = err instanceof Error ? err.message : "Analysis failed";
@@ -226,6 +233,47 @@ export function useMetadataFlow() {
     }
   }, [analyzeEntry]);
 
+  // --- Prefetch next entry after current becomes ready ---
+
+  const prefetchNext = useCallback(() => {
+    // Clear any pending timer
+    if (prefetchTimerRef.current) {
+      clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = null;
+    }
+
+    prefetchTimerRef.current = setTimeout(() => {
+      prefetchTimerRef.current = null;
+      const q = queueRef.current;
+      const idx = currentIndexRef.current;
+      const nextIdx = idx + 1;
+
+      if (nextIdx >= q.length) return;
+      if (processingRef.current) return; // already processing, skip prefetch
+
+      const next = q[nextIdx];
+      if (next.status !== "pending") return;
+
+      // Already analyzing this entry, don't duplicate
+      if (next.abortController) return;
+
+      const controller = new AbortController();
+      next.abortController = controller;
+      next.status = "analyzing";
+      next.error = null;
+      next.loadingProviders = new Set();
+      setQueue((prev) => [...prev]);
+
+      prefetchPromiseRef.current = analyzeEntry(next, controller).then((ok) => {
+        prefetchPromiseRef.current = null;
+        setQueue((prev) => [...prev]);
+        return ok;
+      });
+    }, PREFETCH_DELAY_MS);
+  }, [analyzeEntry]);
+
+  prefetchNextRef.current = prefetchNext;
+
   // Queue advance event
   const advanceHandlerRef = useRef<() => void>(() => {});
   advanceHandlerRef.current = () => {
@@ -242,6 +290,16 @@ export function useMetadataFlow() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Cancel prefetch timer
+      if (prefetchTimerRef.current) {
+        clearTimeout(prefetchTimerRef.current);
+        prefetchTimerRef.current = null;
+      }
+      // Abort in-flight prefetch
+      if (prefetchPromiseRef.current) {
+        prefetchPromiseRef.current = null;
+      }
+      // Abort all entry controllers
       for (const entry of queueRef.current) {
         if (entry.abortController) {
           entry.abortController.abort();
@@ -280,7 +338,7 @@ export function useMetadataFlow() {
     setTimeout(() => processQueue(), 0);
   }, [files, selectedIndices, processQueue]);
 
-  const handleSkip = useCallback(() => {
+  const handleSkip = useCallback(async () => {
     const q = queueRef.current;
     const idx = currentIndexRef.current;
     if (idx >= q.length) return;
@@ -295,7 +353,16 @@ export function useMetadataFlow() {
     const nextIdx = idx + 1;
     currentIndexRef.current = nextIdx;
     setCurrentIndex(nextIdx);
-    // Process next entry
+    // Clear pending prefetch timer, await in-flight prefetch if any
+    if (prefetchTimerRef.current) {
+      clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = null;
+    }
+    if (prefetchPromiseRef.current) {
+      await prefetchPromiseRef.current;
+      prefetchPromiseRef.current = null;
+    }
+    processingRef.current = false;
     setTimeout(() => processQueue(), 0);
   }, [processQueue]);
 
@@ -307,7 +374,7 @@ export function useMetadataFlow() {
     writeSubmit(entry.file.path, entry.fields ?? EMPTY_FIELDS);
   }, [writeSubmit]);
 
-  const handleWriteSuccess = useCallback(() => {
+  const handleWriteSuccess = useCallback(async () => {
     const q = queueRef.current;
     const idx = currentIndexRef.current;
     if (idx >= q.length) return;
@@ -322,7 +389,16 @@ export function useMetadataFlow() {
     const nextIdx = idx + 1;
     currentIndexRef.current = nextIdx;
     setCurrentIndex(nextIdx);
-    // Process next entry
+    // Clear pending prefetch timer, await in-flight prefetch if any
+    if (prefetchTimerRef.current) {
+      clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = null;
+    }
+    if (prefetchPromiseRef.current) {
+      await prefetchPromiseRef.current;
+      prefetchPromiseRef.current = null;
+    }
+    processingRef.current = false;
     setTimeout(() => processQueue(), 0);
   }, [processQueue]);
 
