@@ -120,7 +120,7 @@ def main():
         "Format ID (ENTER = mejor disponible): "
     ).strip()
 
-    output = Path("downloads_test")
+    output = Path("test_downloads")
     output.mkdir(exist_ok=True)
 
     print("\nDescargando...\n")

@@ -67,9 +67,8 @@ Thumbs.db
 tmp/
 temp/
 downloads/
-downloads_test/
-cache/
 test_downloads/
+cache/
 *.mp3
 
 # ==========================

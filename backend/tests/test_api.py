@@ -31,7 +31,7 @@ def test_download(client: TestClient) -> str | None:
     print("2. Download (creates job)")
     r = client.post("/api/download", json={
         "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        "output_dir": "downloads_test",
+        "output_dir": "test_downloads",
     })
     print(f"   Status: {r.status_code}")
     if r.status_code == 200:
@@ -74,7 +74,7 @@ def test_cancel(client: TestClient) -> None:
     print("6. Cancel job")
     r = client.post("/api/download", json={
         "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        "output_dir": "downloads_test",
+        "output_dir": "test_downloads",
     })
     if r.status_code != 200:
         print("   Could not create job")

@@ -90,7 +90,7 @@ def main() -> int:
     parser.add_argument("--select", type=_parse_indices, default=None, help="Comma-separated 0-based indices")
     parser.add_argument("--download", action="store_true", help="Download selected songs")
     parser.add_argument("--download-all", action="store_true", help="Download the entire playlist")
-    parser.add_argument("--output-dir", default="downloads", help="Download directory")
+    parser.add_argument("--output-dir", default="test_downloads", help="Download directory")
     parser.add_argument("--format-id", default=None, help="yt-dlp format id")
     parser.add_argument("--quality", choices=["best", "high", "medium", "low"], default="best", help="Audio quality preset")
     parser.add_argument("--container", choices=["auto", "m4a", "opus", "original"], default="auto", help="Audio container preference")

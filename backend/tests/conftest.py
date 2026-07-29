@@ -34,6 +34,6 @@ def job(job_manager: JobManager) -> Job:
 def job_id(client: TestClient) -> str:
     r = client.post("/api/download", json={
         "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        "output_dir": "downloads_test",
+        "output_dir": "test_downloads",
     })
     return r.json()["id"]
