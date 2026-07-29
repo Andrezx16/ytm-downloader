@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertCircle,
   ChevronDown,
@@ -8,8 +8,10 @@ import {
   FileX,
   Loader2,
   SkipForward,
+  Zap,
 } from "lucide-react";
 import { CoverPicker } from "./CoverPicker";
+import { useImageDimensions } from "./useImageDimensions";
 import type { MetadataFields } from "./types";
 import type { MatchCandidate } from "@/api/pipeline";
 import type { ApiError } from "@/api/errors";
@@ -61,6 +63,7 @@ function CandidateCard({
   isExpanded,
   onToggleExpand,
   isSelected,
+  isBest,
   isSelectingThis,
   isSelectingOther,
   onSelect,
@@ -69,11 +72,13 @@ function CandidateCard({
   isExpanded: boolean;
   onToggleExpand: () => void;
   isSelected: boolean;
+  isBest: boolean;
   isSelectingThis: boolean;
   isSelectingOther: boolean;
   onSelect: () => void;
 }) {
   const disabled = isSelectingOther;
+  const coverDims = useImageDimensions(match.cover_url);
 
   return (
     <div
@@ -85,14 +90,21 @@ function CandidateCard({
     >
       <div className="flex items-center gap-3 p-3">
         {match.cover_url ? (
-          <img
-            src={match.cover_url}
-            alt=""
-            className="size-10 shrink-0 rounded object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = "none";
-            }}
-          />
+          <div className="relative shrink-0">
+            <img
+              src={match.cover_url}
+              alt=""
+              className="size-10 rounded object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+            {coverDims && (
+              <span className="absolute -bottom-1 -right-1 rounded bg-foreground/80 px-1 py-px text-[9px] leading-none text-background">
+                {coverDims.w}x{coverDims.h}
+              </span>
+            )}
+          </div>
         ) : (
           <div className="flex size-10 shrink-0 items-center justify-center rounded bg-muted">
             <Disc3 className="size-5 text-muted-foreground" aria-hidden="true" />
@@ -114,6 +126,12 @@ function CandidateCard({
         {match.confidence != null && (
           <span className="shrink-0 text-xs text-muted-foreground">
             {(match.confidence * 100).toFixed(0)}%
+          </span>
+        )}
+        {isBest && !isSelected && (
+          <span className="shrink-0 flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+            <Zap className="size-2.5" aria-hidden="true" />
+            Best
           </span>
         )}
 
@@ -276,6 +294,31 @@ export function MetadataForm({
   // Progress bar
   const progress = queueTotal > 0 ? ((queueIndex + 1) / queueTotal) * 100 : 0;
 
+  // Best candidate: confidence > 0.80 + provider with highest typical resolution
+  const PROVIDER_RES_PRIORITY: Record<string, number> = {
+    deezer: 100,
+    apple: 80,
+    spotify: 70,
+    ytmusic: 60,
+    lastfm: 50,
+    musicbrainz: 0,
+  };
+  const bestIndex = useMemo(() => {
+    if (selectedIndex !== null || matches.length === 0) return null;
+    const scored = matches
+      .map((m, i) => ({
+        i,
+        conf: m.confidence ?? 0,
+        res: PROVIDER_RES_PRIORITY[m.source] ?? 30,
+        hasCover: !!m.cover_url,
+      }))
+      .filter((c) => c.conf > 0.8 && c.hasCover);
+    if (scored.length === 0) return null;
+    return scored.reduce((best, c) =>
+      c.conf > best.conf || (c.conf === best.conf && c.res > best.res) ? c : best,
+    ).i;
+  }, [matches, selectedIndex]);
+
   // Analyzing state — no matches yet, still loading
   if (isCurrentLoading && matches.length === 0) {
     return (
@@ -372,6 +415,7 @@ export function MetadataForm({
                 setExpandedIndex(expandedIndex === i ? null : i)
               }
               isSelected={selectedIndex === i}
+              isBest={bestIndex === i}
               isSelectingThis={isSelecting && selectedIndex === i}
               isSelectingOther={isSelecting && selectedIndex !== i}
               onSelect={() => onSelectCandidate(i)}
@@ -445,6 +489,10 @@ export function MetadataForm({
         value={fields.cover_url}
         onChange={(cover_url) => onFieldsChange({ ...fields, cover_url })}
         disabled={disabled}
+        alternatives={matches.filter(
+          (m) => m.cover_url && m.cover_url !== fields.cover_url,
+        )}
+        onAlternativeSelect={(cover_url) => onFieldsChange({ ...fields, cover_url })}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

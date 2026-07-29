@@ -96,7 +96,7 @@ export function MetadataPage() {
               matches={currentMatches}
               loadingProviders={currentLoadingProviders}
               selectedIndex={currentEntry.selectedIndex}
-              lyricsFound={currentLyrics !== null ? currentLyrics.length > 0 : null}
+              lyricsFound={currentLyrics != null && currentLyrics.length > 0}
               fields={currentFields}
               onFieldsChange={handleSetFields}
               onSelectCandidate={handleSelectCandidate}

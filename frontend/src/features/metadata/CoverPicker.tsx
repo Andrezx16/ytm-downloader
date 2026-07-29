@@ -1,12 +1,87 @@
-import { Image, X } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, Image, X } from "lucide-react";
+import { useImageDimensions } from "./useImageDimensions";
+import type { MatchCandidate } from "@/api/pipeline";
 
 interface CoverPickerProps {
   value: string;
   onChange: (url: string) => void;
   disabled?: boolean;
+  alternatives?: MatchCandidate[];
+  onAlternativeSelect?: (url: string) => void;
 }
 
-export function CoverPicker({ value, onChange, disabled = false }: CoverPickerProps) {
+function sourceLabel(source: string): string {
+  const labels: Record<string, string> = {
+    deezer: "Deezer",
+    apple: "Apple Music",
+    musicbrainz: "MusicBrainz",
+    lastfm: "Last.fm",
+    spotify: "Spotify",
+    ytmusic: "YouTube Music",
+  };
+  return labels[source] ?? source;
+}
+
+function CoverAlternative({
+  match,
+  isActive,
+  onSelect,
+  disabled,
+}: {
+  match: MatchCandidate;
+  isActive: boolean;
+  onSelect: () => void;
+  disabled: boolean;
+}) {
+  const dims = useImageDimensions(match.cover_url);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={disabled || isActive}
+      className={`relative shrink-0 rounded-md border transition-colors ${
+        isActive
+          ? "border-primary ring-1 ring-primary"
+          : "border-border hover:border-primary/50"
+      } disabled:pointer-events-none`}
+    >
+      {match.cover_url ? (
+        <img
+          src={match.cover_url}
+          alt=""
+          className="size-16 rounded-md object-cover"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+      ) : (
+        <div className="flex size-16 items-center justify-center rounded-md bg-muted">
+          <Image className="size-5 text-muted-foreground" />
+        </div>
+      )}
+      <span className="absolute bottom-0.5 left-0.5 rounded bg-foreground/80 px-1 py-px text-[8px] leading-none text-background">
+        {sourceLabel(match.source)}
+      </span>
+      {dims && (
+        <span className="absolute bottom-0.5 right-0.5 rounded bg-foreground/80 px-1 py-px text-[8px] leading-none text-background">
+          {dims.w}x{dims.h}
+        </span>
+      )}
+    </button>
+  );
+}
+
+export function CoverPicker({
+  value,
+  onChange,
+  disabled = false,
+  alternatives = [],
+  onAlternativeSelect,
+}: CoverPickerProps) {
+  const [showAlternatives, setShowAlternatives] = useState(false);
+  const hasAlternatives = alternatives.length > 0;
+
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor="metadata-cover" className="text-sm font-medium">
@@ -50,6 +125,40 @@ export function CoverPicker({ value, onChange, disabled = false }: CoverPickerPr
             (e.target as HTMLImageElement).style.display = "none";
           }}
         />
+      )}
+      {hasAlternatives && (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={() => setShowAlternatives(!showAlternatives)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            disabled={disabled}
+          >
+            {showAlternatives ? (
+              <ChevronUp className="size-3" />
+            ) : (
+              <ChevronDown className="size-3" />
+            )}
+            {alternatives.length} other cover{alternatives.length !== 1 ? "s" : ""} available
+          </button>
+          {showAlternatives && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {alternatives.map((match, i) => (
+                <CoverAlternative
+                  key={`${match.source}-${i}`}
+                  match={match}
+                  isActive={match.cover_url === value}
+                  onSelect={() => {
+                    if (match.cover_url && onAlternativeSelect) {
+                      onAlternativeSelect(match.cover_url);
+                    }
+                  }}
+                  disabled={disabled}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
