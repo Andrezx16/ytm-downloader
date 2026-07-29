@@ -1,47 +1,50 @@
-import { NavLink } from "react-router-dom";
-import { Home, Search, ListMusic, Download, Tag, Settings } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Menu, X } from "lucide-react";
+import { Navigation } from "./Navigation";
 
-interface NavItem {
-  to: string;
-  label: string;
-  icon: LucideIcon;
+interface SidebarProps {
+  collapsed: boolean;
+  onToggle: () => void;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Home", icon: Home },
-  { to: "/search", label: "Search", icon: Search },
-  { to: "/playlist", label: "Playlist", icon: ListMusic },
-  { to: "/downloads", label: "Downloads", icon: Download },
-  { to: "/metadata", label: "Metadata", icon: Tag },
-  { to: "/settings", label: "Settings", icon: Settings },
-];
-
-export function Sidebar() {
+export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
-    <aside className="flex h-full w-56 flex-col border-r border-border bg-card">
-      <div className="flex h-14 items-center border-b border-border px-4">
-        <span className="text-lg font-semibold">YTM Downloader</span>
-      </div>
-      <nav className="flex-1 space-y-1 p-2">
-        {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/"}
-            className={({ isActive }) =>
-              `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              }`
-            }
+    <>
+      {/* Mobile overlay */}
+      {!collapsed && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={onToggle}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed z-50 flex h-full flex-col border-r border-border bg-card transition-all duration-200 lg:relative lg:z-auto ${
+          collapsed ? "w-16" : "w-56"
+        } ${collapsed ? "-translate-x-full lg:translate-x-0" : "translate-x-0"}`}
+        aria-label="Sidebar"
+      >
+        <div className="flex h-14 items-center justify-between border-b border-border px-4">
+          {!collapsed && (
+            <span className="text-lg font-semibold">YTM Downloader</span>
+          )}
+          <button
+            onClick={onToggle}
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            <item.icon className="size-4" />
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
-    </aside>
+            {collapsed ? (
+              <Menu className="size-4" aria-hidden="true" />
+            ) : (
+              <X className="size-4" aria-hidden="true" />
+            )}
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          <Navigation collapsed={collapsed} />
+        </div>
+      </aside>
+    </>
   );
 }

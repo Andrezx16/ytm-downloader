@@ -9,10 +9,10 @@ export interface PlaylistRequest {
 export interface PlaylistEntry {
   title: string;
   artist: string;
-  duration: number;
+  duration_seconds: number;
   video_id: string;
   url: string;
-  thumbnail: string;
+  thumbnail_url: string;
   uploader: string;
   position: number;
   provider: string;
@@ -22,7 +22,7 @@ export interface PlaylistInfo {
   title: string;
   description: string;
   uploader: string;
-  thumbnail: string;
+  thumbnail_url: string;
   playlist_id: string;
   total_tracks: number;
   total_duration: number;

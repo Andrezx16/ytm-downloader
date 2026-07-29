@@ -255,6 +255,7 @@ class PlaylistDownloadProgress:
     current_entry: PlaylistEntry | None = None
     current_song_progress: single_downloader.DownloadProgress | None = None
     message: str | None = None
+    filepath: str | None = None
 
 
 @dataclass(slots=True)
@@ -428,6 +429,7 @@ class PlaylistDownloader:
                         current_entry=entry,
                         current_song_progress=last_progress.current_song_progress if last_progress else None,
                         message=f"Finished {entry.title}",
+                        filepath=song_result.filepath,
                     )
                     self._safe_callback(opts.on_song_finish, last_progress)
                     self._safe_callback(opts.progress_callback, last_progress)
@@ -585,6 +587,7 @@ class PlaylistDownloader:
         current_entry: PlaylistEntry | None,
         current_song_progress: single_downloader.DownloadProgress | None,
         message: str | None,
+        filepath: str | None = None,
     ) -> PlaylistDownloadProgress:
         return PlaylistDownloadProgress(
             playlist_title=playlist.title,
@@ -600,6 +603,7 @@ class PlaylistDownloader:
             current_entry=current_entry,
             current_song_progress=current_song_progress,
             message=message,
+            filepath=filepath,
         )
 
     def _safe_callback(self, callback: Callable[..., Any] | None, *args: Any) -> None:

@@ -34,3 +34,10 @@ export function download(params: DownloadRequest, signal?: AbortSignal): Promise
     signal,
   });
 }
+
+export function openFolder(path: string): Promise<void> {
+  return request<void>("/open-folder", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}

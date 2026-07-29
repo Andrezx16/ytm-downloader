@@ -85,3 +85,11 @@ print(score_candidate(f, c))
 1. Frontend Tauri: `CurrentFile.tsx`, `CandidateCard.tsx`, `MetadataForm.tsx`.
 2. Probar `writer.py` contra un MP3/M4A/FLAC real (no se probó escritura
    real todavía, solo que el módulo importa sin errores).
+
+
+cd backend
+venv/scripts/activate
+uvicorn api:app --reload
+
+cd frontend
+npm run dev

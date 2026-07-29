@@ -9,13 +9,17 @@ export interface SearchRequest {
 }
 
 export interface SearchResult {
+  video_id: string;
   title: string;
   artist: string;
-  duration: number;
-  thumbnail: string;
-  video_id: string;
   url: string;
-  provider: string;
+  thumbnail_url: string;
+  duration_seconds: number;
+  album: string | null;
+  uploader: string | null;
+  channel: string | null;
+  search_position: number;
+  source: string;
 }
 
 // --- API ---

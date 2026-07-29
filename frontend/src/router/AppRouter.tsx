@@ -1,16 +1,16 @@
 import { Routes, Route } from "react-router-dom";
-import { Layout } from "@/components/layout/Layout";
+import { AppLayout } from "@/components/layout/AppLayout";
 import { HomePage } from "@/pages/HomePage";
-import { SearchPage } from "@/pages/SearchPage";
-import { PlaylistPage } from "@/pages/PlaylistPage";
-import { DownloadsPage } from "@/pages/DownloadsPage";
+import { SearchPage } from "@/features/search";
+import { PlaylistPage } from "@/features/playlist";
+import { DownloadsPage } from "@/features/downloads";
 import { MetadataPage } from "@/pages/MetadataPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 
 export function AppRouter() {
   return (
     <Routes>
-      <Route element={<Layout />}>
+      <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="playlist" element={<PlaylistPage />} />

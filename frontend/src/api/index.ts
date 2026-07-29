@@ -1,7 +1,7 @@
 export { ApiError } from "./errors";
 export { request } from "./client";
 export { search } from "./search";
-export { download } from "./download";
+export { download, openFolder } from "./download";
 export { getPlaylist, downloadPlaylist } from "./playlist";
 export { analyze, enrich, write } from "./pipeline";
 export { getJob, cancelJob, subscribeJob } from "./jobs";

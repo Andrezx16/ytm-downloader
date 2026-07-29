@@ -16,7 +16,7 @@ from api import app
 
 def test_search(client: TestClient) -> None:
     print("1. Search")
-    r = client.post("/search", json={"query": "imagine dragons believer", "limit": 3})
+    r = client.post("/api/search", json={"query": "imagine dragons believer", "limit": 3})
     print(f"   Status: {r.status_code}")
     if r.status_code == 200:
         results = r.json()
@@ -29,7 +29,7 @@ def test_search(client: TestClient) -> None:
 
 def test_download(client: TestClient) -> str | None:
     print("2. Download (creates job)")
-    r = client.post("/download", json={
+    r = client.post("/api/download", json={
         "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         "output_dir": "downloads_test",
     })
@@ -44,7 +44,7 @@ def test_download(client: TestClient) -> str | None:
 
 def test_job_status(client: TestClient, job_id: str) -> None:
     print("3. Job status")
-    r = client.get(f"/jobs/{job_id}")
+    r = client.get(f"/api/jobs/{job_id}")
     print(f"   Status: {r.status_code}")
     if r.status_code == 200:
         job = r.json()
@@ -53,7 +53,7 @@ def test_job_status(client: TestClient, job_id: str) -> None:
 
 def test_playlist(client: TestClient) -> None:
     print("4. Playlist info")
-    r = client.post("/playlist", json={
+    r = client.post("/api/playlist", json={
         "url": "https://www.youtube.com/playlist?list=PL-osiE80TeTsWmV9i9c58mdDCSskIFdDS",
     })
     print(f"   Status: {r.status_code}")
@@ -66,13 +66,13 @@ def test_playlist(client: TestClient) -> None:
 
 def test_pipeline_analyze(client: TestClient) -> None:
     print("5. Pipeline analyze (404 expected)")
-    r = client.post("/pipeline/analyze", json={"path": "nonexistent.mp3"})
+    r = client.post("/api/pipeline/analyze", json={"path": "nonexistent.mp3"})
     print(f"   Status: {r.status_code} (expected 404)")
 
 
 def test_cancel(client: TestClient) -> None:
     print("6. Cancel job")
-    r = client.post("/download", json={
+    r = client.post("/api/download", json={
         "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         "output_dir": "downloads_test",
     })
@@ -81,7 +81,7 @@ def test_cancel(client: TestClient) -> None:
         return
     job_id = r.json()["id"]
 
-    r = client.post(f"/jobs/{job_id}/cancel")
+    r = client.post(f"/api/jobs/{job_id}/cancel")
     print(f"   Status: {r.status_code}")
     if r.status_code == 200:
         print(f"   State: {r.json()['state']}")
@@ -91,16 +91,16 @@ def test_cancel(client: TestClient) -> None:
 
 def test_error_handling(client: TestClient) -> None:
     print("7. Error handling")
-    r = client.get("/jobs/nonexistent")
+    r = client.get("/api/jobs/nonexistent")
     print(f"   404 test: {r.status_code} (expected 404)")
 
-    r = client.post("/search", json={})
+    r = client.post("/api/search", json={})
     print(f"   Validation test: {r.status_code} (expected 422)")
 
 
 def test_sse(client: TestClient, job_id: str) -> None:
     print("8. SSE events")
-    with client.stream("GET", f"/jobs/{job_id}/events") as r:
+    with client.stream("GET", f"/api/jobs/{job_id}/events") as r:
         print(f"   Status: {r.status_code}")
         count = 0
         for line in r.iter_lines():
@@ -125,7 +125,7 @@ def main() -> None:
 
             for _ in range(30):
                 time.sleep(1)
-                status = client.get(f"/jobs/{job_id}").json()
+                status = client.get(f"/api/jobs/{job_id}").json()
                 if status["state"] in ("completed", "failed", "cancelled"):
                     break
 

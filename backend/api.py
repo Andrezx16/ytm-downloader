@@ -10,10 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import asyncio
 import json
 import logging
+import platform
+import subprocess
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, APIRouter
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
@@ -72,6 +74,10 @@ class PipelineWriteRequest(BaseModel):
     metadata: dict[str, Any]
 
 
+class OpenFolderRequest(BaseModel):
+    path: str
+
+
 # --- Response Models ---
 
 
@@ -103,6 +109,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ytm-downloader", lifespan=lifespan)
+
+router = APIRouter(prefix="/api")
 
 
 # --- Exception handlers ---
@@ -198,6 +206,12 @@ def _run_download(
             embed_metadata=embed_metadata,
         ),
     )
+    job.update_metadata({
+        "filepath": result.filepath,
+        "artist": result.video.artist,
+        "thumbnail_url": result.video.thumbnail_url,
+        "duration_seconds": result.video.duration_seconds,
+    })
     job.result = {
         "filepath": result.filepath,
         "title": result.title,
@@ -243,6 +257,9 @@ def _run_playlist_download(
             extras["current_track"] = {
                 "title": progress.current_entry.title,
                 "artist": progress.current_entry.artist,
+                "thumbnail_url": progress.current_entry.thumbnail_url,
+                "duration_seconds": progress.current_entry.duration_seconds,
+                "video_id": progress.current_entry.video_id,
             }
         song = progress.current_song_progress
         if song is not None:
@@ -250,6 +267,11 @@ def _run_playlist_download(
                 extras["speed_bytes_per_second"] = round(song.speed_bytes_per_second)
             if song.eta_seconds is not None:
                 extras["eta_seconds"] = song.eta_seconds
+            if song.percent is not None:
+                extras["song_percent"] = song.percent
+        if progress.filepath is not None:
+            extras["filepath"] = progress.filepath
+            extras["output_directory"] = output_dir
         job.update_metadata(extras)
 
     options = PlaylistDownloadOptions(
@@ -295,7 +317,7 @@ def _run_enrich(job: Job, path: str, selected_index: int | None, write: bool) ->
 # --- Endpoints ---
 
 
-@app.post("/search")
+@router.post("/search")
 async def search(request: SearchRequest) -> Any:
     logger.info("search query=%s limit=%d", request.query, request.limit)
     downloader = YoutubeDownloader()
@@ -303,7 +325,7 @@ async def search(request: SearchRequest) -> Any:
     return results
 
 
-@app.post("/download")
+@router.post("/download")
 async def download(request: DownloadRequest) -> JobResponse:
     logger.info("download url=%s", request.url)
     jm: JobManager = app.state.job_manager
@@ -322,7 +344,7 @@ async def download(request: DownloadRequest) -> JobResponse:
     return _job_response(job)
 
 
-@app.post("/playlist")
+@router.post("/playlist")
 async def get_playlist(request: PlaylistRequest) -> Any:
     logger.info("playlist url=%s", request.url)
     playlist_dl = PlaylistDownloader()
@@ -330,7 +352,7 @@ async def get_playlist(request: PlaylistRequest) -> Any:
     return playlist.to_dict()
 
 
-@app.post("/playlist/download")
+@router.post("/playlist/download")
 async def download_playlist(request: PlaylistDownloadRequest) -> JobResponse:
     logger.info("playlist_download url=%s", request.url)
     jm: JobManager = app.state.job_manager
@@ -350,7 +372,7 @@ async def download_playlist(request: PlaylistDownloadRequest) -> JobResponse:
     return _job_response(job)
 
 
-@app.post("/pipeline/analyze")
+@router.post("/pipeline/analyze")
 async def analyze(request: PipelineAnalyzeRequest) -> Any:
     logger.info("pipeline_analyze path=%s", request.path)
     try:
@@ -363,7 +385,7 @@ async def analyze(request: PipelineAnalyzeRequest) -> Any:
     return result
 
 
-@app.post("/pipeline/enrich")
+@router.post("/pipeline/enrich")
 async def enrich(request: PipelineEnrichRequest) -> JobResponse:
     logger.info("pipeline_enrich path=%s", request.path)
     jm: JobManager = app.state.job_manager
@@ -373,14 +395,14 @@ async def enrich(request: PipelineEnrichRequest) -> JobResponse:
     return _job_response(job)
 
 
-@app.post("/pipeline/write")
+@router.post("/pipeline/write")
 async def write_metadata(request: PipelineWriteRequest) -> Response:
     logger.info("pipeline_write path=%s", request.path)
     await app.state.pipeline.write_metadata(request.path, request.metadata)
     return Response(status_code=204)
 
 
-@app.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}")
 async def get_job(job_id: str) -> JobResponse:
     job = app.state.job_manager.get(job_id)
     if job is None:
@@ -388,7 +410,7 @@ async def get_job(job_id: str) -> JobResponse:
     return _job_response(job)
 
 
-@app.post("/jobs/{job_id}/cancel")
+@router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str) -> JobResponse:
     jm: JobManager = app.state.job_manager
     job = jm.get(job_id)
@@ -400,7 +422,7 @@ async def cancel_job(job_id: str) -> JobResponse:
     return _job_response(job)
 
 
-@app.get("/jobs/{job_id}/events")
+@router.get("/jobs/{job_id}/events")
 async def job_events(job_id: str) -> StreamingResponse:
     jm: JobManager = app.state.job_manager
     job = jm.get(job_id)
@@ -434,3 +456,26 @@ async def job_events(job_id: str) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/open-folder")
+async def open_folder(request: OpenFolderRequest) -> Response:
+    logger.info("open_folder path=%s", request.path)
+    target = Path(request.path).resolve()
+    folder = target if target.is_dir() else target.parent
+    if not folder.exists():
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder}")
+    try:
+        p = platform.system()
+        if p == "Windows":
+            subprocess.Popen(["explorer.exe", str(folder)])
+        elif p == "Darwin":
+            subprocess.Popen(["open", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to open folder: {exc}") from exc
+    return Response(status_code=204)
+
+
+app.include_router(router)
