@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from "react";
 import { X } from "lucide-react";
 import { trackJob } from "@/features/jobs";
 import { useDownload } from "./hooks";
+import { useSettings } from "@/features/settings";
+import { useFolderHistory } from "@/hooks";
 import { DownloadOptionsForm } from "./DownloadOptions";
 import type { DownloadOptions } from "./types";
 
@@ -13,14 +15,6 @@ interface DownloadDialogProps {
   defaultOptions?: Partial<DownloadOptions>;
 }
 
-const DEFAULT_OPTIONS: DownloadOptions = {
-  output_dir: "downloads",
-  quality: "best",
-  container: "auto",
-  embed_thumbnail: true,
-  embed_metadata: true,
-};
-
 export function DownloadDialog({
   url,
   title,
@@ -28,23 +22,33 @@ export function DownloadDialog({
   onClose,
   defaultOptions,
 }: DownloadDialogProps) {
+  const { settings } = useSettings();
+  const { history, add } = useFolderHistory("downloads");
   const [options, setOptions] = useState<DownloadOptions>({
-    ...DEFAULT_OPTIONS,
+    output_dir: history[0] ?? "downloads",
+    ...settings.downloads,
     ...defaultOptions,
   });
 
   const { download, isLoading, error, reset } = useDownload();
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      setOptions({
+        output_dir: history[0] ?? "downloads",
+        ...settings.downloads,
+        ...defaultOptions,
+      });
+    } else {
       reset();
     }
-  }, [open, reset]);
+  }, [open, history, settings.downloads, defaultOptions, reset]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!options.output_dir.trim()) return;
+      add(options.output_dir);
       download(
         { url, ...options },
         {
@@ -55,7 +59,7 @@ export function DownloadDialog({
         },
       );
     },
-    [url, title, options, download, onClose],
+    [url, title, options, download, add, onClose],
   );
 
   if (!open) return null;
@@ -79,6 +83,7 @@ export function DownloadDialog({
           <DownloadOptionsForm
             value={options}
             onChange={setOptions}
+            namespace="downloads"
             disabled={isLoading}
           />
 

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { trackJob } from "@/features/jobs";
+import { useFolderHistory } from "@/hooks";
 import type { DownloadOptions } from "@/features/download/types";
 import { usePlaylist, usePlaylistDownload, useTrackSelection, usePlaylistHistory } from "./hooks";
 import { PlaylistUrlForm } from "./PlaylistUrlForm";
@@ -12,6 +13,7 @@ export function PlaylistPage() {
   const { playlist, isLoading, error } = usePlaylist(url);
   const { download, isLoading: isDownloading } = usePlaylistDownload();
   const playlistHistory = usePlaylistHistory();
+  const folderHistory = useFolderHistory("playlist");
 
   const tracks = playlist?.entries ?? [];
   const {
@@ -36,6 +38,7 @@ export function PlaylistPage() {
   const handleDownload = useCallback(
     (options: DownloadOptions) => {
       if (!url) return;
+      folderHistory.add(options.output_dir);
       download(
         {
           url,
@@ -49,7 +52,7 @@ export function PlaylistPage() {
         },
       );
     },
-    [url, selectedPositions, download, playlist?.title],
+    [url, selectedPositions, download, playlist?.title, folderHistory],
   );
 
   if (!url || (!isLoading && !playlist && !error)) {

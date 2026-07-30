@@ -35,7 +35,7 @@ export function MetadataPage() {
     writeError,
   } = useMetadataFlow();
 
-  const folderHistory = useFolderHistory();
+  const folderHistory = useFolderHistory("metadata");
 
   const handleScanWithHistory = (path: string) => {
     folderHistory.add(path);

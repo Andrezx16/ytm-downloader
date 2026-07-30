@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import platform
+import shutil
 import subprocess
 from contextlib import asynccontextmanager
 from typing import Any, Literal
@@ -22,13 +23,26 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, APIRouter
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
-
-from downloader import AudioDownloadOptions, YoutubeDownloader
+from downloader import AudioDownloadOptions, DownloaderAuth, YoutubeDownloader, classify_download_error, friendly_download_error
 from jobs import Job, JobManager, JobState, TERMINAL_STATES
 from pipeline import MetadataPipeline
 from playlist_downloader import PlaylistDownloader, PlaylistDownloadOptions
 
 logger = logging.getLogger(__name__)
+
+
+# --- Auth ---
+
+
+logger = logging.getLogger(__name__)
+
+
+def _make_downloader() -> YoutubeDownloader:
+    """Create a YoutubeDownloader with resolved authentication."""
+    from auth import has_cookies, cookies_path
+    if has_cookies():
+        return YoutubeDownloader(auth=DownloaderAuth(cookies_file=str(cookies_path())))
+    return YoutubeDownloader()
 
 
 # --- Request Models ---
@@ -183,6 +197,8 @@ def _run_download(
     embed_thumbnail: bool,
     embed_metadata: bool,
 ) -> None:
+    logger.info("Download: url=%s", url)
+
     def _progress(progress: Any) -> None:
         if job.is_cancelled():
             return
@@ -208,18 +224,28 @@ def _run_download(
             job.set_progress(100.0, f"Finished {progress.title or ''}")
             job.update_metadata({"filepath": progress.filename})
 
-    downloader = YoutubeDownloader()
-    result = downloader.download(
-        url,
-        output_dir=output_dir,
-        progress_callback=_progress,
-        audio_options=AudioDownloadOptions(
-            quality=quality,
-            container=container,
-            embed_thumbnail=embed_thumbnail,
-            embed_metadata=embed_metadata,
-        ),
-    )
+    downloader = _make_downloader()
+    try:
+        result = downloader.download(
+            url,
+            output_dir=output_dir,
+            progress_callback=_progress,
+            audio_options=AudioDownloadOptions(
+                quality=quality,
+                container=container,
+                embed_thumbnail=embed_thumbnail,
+                embed_metadata=embed_metadata,
+            ),
+        )
+    except Exception as exc:
+        classification = classify_download_error(exc)
+        logger.warning(
+            "Download failed: url=%s error=%s classification=%s",
+            url, exc, classification,
+        )
+        job.error = friendly_download_error(exc)
+        raise
+
     job.update_metadata({
         "filepath": result.filepath,
         "artist": result.video.artist,
@@ -243,7 +269,8 @@ def _run_playlist_download(
     embed_thumbnail: bool,
     embed_metadata: bool,
 ) -> None:
-    playlist_dl = PlaylistDownloader()
+    downloader = _make_downloader()
+    playlist_dl = PlaylistDownloader(downloader=downloader)
     playlist = playlist_dl.get_playlist(url)
 
     def _progress(progress: Any) -> None:
@@ -334,7 +361,7 @@ def _run_enrich(job: Job, path: str, selected_index: int | None, write: bool) ->
 @router.post("/search")
 async def search(request: SearchRequest) -> Any:
     logger.info("search query=%s limit=%d", request.query, request.limit)
-    downloader = YoutubeDownloader()
+    downloader = _make_downloader()
     results = await asyncio.to_thread(downloader.search, request.query, request.limit, request.filter)
     return results
 
@@ -361,7 +388,8 @@ async def download(request: DownloadRequest) -> JobResponse:
 @router.post("/playlist")
 async def get_playlist(request: PlaylistRequest) -> Any:
     logger.info("playlist url=%s", request.url)
-    playlist_dl = PlaylistDownloader()
+    downloader = _make_downloader()
+    playlist_dl = PlaylistDownloader(downloader=downloader)
     playlist = await asyncio.to_thread(playlist_dl.get_playlist, request.url)
     return playlist.to_dict()
 
@@ -576,6 +604,58 @@ async def open_folder(request: OpenFolderRequest) -> Response:
             subprocess.Popen(["xdg-open", str(folder)])
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to open folder: {exc}") from exc
+    return Response(status_code=204)
+
+
+# --- Auth Endpoints ---
+
+
+from auth import has_cookies, cookies_path, save_cookies, remove_cookies
+from fastapi import UploadFile
+
+
+class AuthStatusResponse(BaseModel):
+    configured: bool
+    imported_at: str | None = None
+
+
+@router.get("/auth/status")
+async def auth_status() -> AuthStatusResponse:
+    from datetime import datetime
+    path = cookies_path()
+    if path.is_file():
+        stat = path.stat()
+        imported = datetime.fromtimestamp(stat.st_mtime).isoformat()
+        return AuthStatusResponse(configured=True, imported_at=imported)
+    return AuthStatusResponse(configured=False, imported_at=None)
+
+
+@router.post("/auth/cookies", status_code=201)
+async def import_cookies(file: UploadFile) -> dict[str, str]:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided.")
+    if not file.filename.lower().endswith(".txt"):
+        raise HTTPException(status_code=400, detail="Only .txt files are accepted.")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="The file is empty.")
+
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    try:
+        save_cookies(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Cookies imported successfully."}
+
+
+@router.delete("/auth/cookies")
+async def delete_cookies() -> Response:
+    remove_cookies()
     return Response(status_code=204)
 
 

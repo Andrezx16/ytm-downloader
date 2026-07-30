@@ -3,42 +3,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { scanFolder, analyzeStream, selectMatch, write } from "@/api/pipeline";
 import type { ScanFile, MatchCandidate } from "@/api/pipeline";
 import { ApiError } from "@/api/errors";
-import { useLocalStorage } from "@/hooks";
+import { useFolderHistory } from "@/hooks";
 import type { MetadataFields, MetadataStep, QueueEntry } from "./types";
 import { matchToFields, EMPTY_FIELDS } from "./types";
 
-const FOLDER_HISTORY_KEY = "ytm-folder-history";
-const FOLDER_HISTORY_LIMIT = 10;
 const PREFETCH_DELAY_MS = 3000;
 
-export function useFolderHistory() {
-  const [history, setHistory] = useLocalStorage<string[]>(FOLDER_HISTORY_KEY, []);
-
-  const add = useCallback(
-    (path: string) => {
-      const trimmed = path.trim();
-      if (!trimmed) return;
-      setHistory((prev) => {
-        const filtered = prev.filter((p) => p !== trimmed);
-        return [trimmed, ...filtered].slice(0, FOLDER_HISTORY_LIMIT);
-      });
-    },
-    [setHistory],
-  );
-
-  const remove = useCallback(
-    (path: string) => {
-      setHistory((prev) => prev.filter((p) => p !== path));
-    },
-    [setHistory],
-  );
-
-  const clear = useCallback(() => {
-    setHistory([]);
-  }, [setHistory]);
-
-  return { history, add, remove, clear };
-}
+export { useFolderHistory };
 
 export function useScanFolder() {
   const queryClient = useQueryClient();

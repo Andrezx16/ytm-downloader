@@ -5,7 +5,7 @@ import { SearchPage } from "@/features/search";
 import { PlaylistPage } from "@/features/playlist";
 import { DownloadsPage } from "@/features/downloads";
 import { MetadataPage } from "@/features/metadata";
-import { SettingsPage } from "@/pages/SettingsPage";
+import { SettingsPage } from "@/features/settings";
 
 export function AppRouter() {
   return (

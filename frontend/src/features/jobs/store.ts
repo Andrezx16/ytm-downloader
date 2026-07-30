@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { JobRecord } from "./types";
 
 interface JobsStore {
@@ -66,10 +66,10 @@ export function useJobsStore(): JobRecord[] {
     };
   }, []);
 
-  useState(() => {
+  useEffect(() => {
     const unsub = subscribe();
     return unsub;
-  });
+  }, [subscribe]);
 
   return state;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { subscribeJob, getJob } from "@/api";
 import type { JobEvent } from "@/api/jobs";
-import { updateJob, getJobSnapshot } from "./store";
+import { updateJob, getJobSnapshot, useJobsStore } from "./store";
 
 const ACTIVE_STATES = new Set(["queued", "running"]);
 
@@ -20,7 +20,9 @@ function syncFromEvent(id: string, event: JobEvent) {
   });
 }
 
-export function JobSubscriber({ jobIds }: { jobIds: string[] }) {
+export function JobSubscriber() {
+  const jobs = useJobsStore();
+  const jobIds = jobs.map((j) => j.id);
   const subsRef = useRef<Map<string, () => void>>(new Map());
 
   // Subscribe to new active jobs, unsubscribe removed jobs

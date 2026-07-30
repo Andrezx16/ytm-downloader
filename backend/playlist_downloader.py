@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Sequence
 
 import downloader as single_downloader
+from downloader import classify_download_error, friendly_download_error
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def _normalize_indices(indices: int | Iterable[int], total: int) -> tuple[int, .
     for index in items:
         if not isinstance(index, int):
             raise TypeError("Playlist indices must be integers")
-        resolved = index if index >= 0 else total + index
+        resolved = (index - 1) if index > 0 else total + index
         if resolved < 0 or resolved >= total:
             raise IndexError(f"Playlist index out of range: {index}")
         if resolved not in normalized:
@@ -385,7 +386,8 @@ class PlaylistDownloader:
 
             last_progress: PlaylistDownloadProgress | None = None
             last_error: Exception | None = None
-            for attempt in range(max(0, opts.retries) + 1):
+            max_attempts = max(0, opts.retries) + 1
+            for attempt in range(max_attempts):
                 if self._cancel_requested.is_set():
                     break
 
@@ -436,14 +438,25 @@ class PlaylistDownloader:
                     break
                 except Exception as exc:  # pragma: no cover - retry path is exercised manually
                     last_error = exc
+                    classification = classify_download_error(exc)
+                    friendly_msg = friendly_download_error(exc)
+                    is_last_attempt = attempt >= max_attempts - 1
+
                     logger.warning(
-                        "Playlist item failed (%s/%s) for %r: %s",
+                        "Playlist item failed (%s/%s) for %r: classification=%s error=%s",
                         attempt + 1,
-                        max(0, opts.retries) + 1,
+                        max_attempts,
                         entry.title,
+                        classification,
                         exc,
                     )
-                    if attempt >= max(0, opts.retries):
+
+                    if classification == "permanent" or is_last_attempt:
+                        if classification == "permanent":
+                            logger.warning(
+                                "Permanent error detected for %r, skipping retries",
+                                entry.title,
+                            )
                         failed += 1
                         failed_files.append(self._entry_output_path(entry, output_directory))
                         failure_progress = self._make_progress(
@@ -456,14 +469,19 @@ class PlaylistDownloader:
                             current_index=entry.position,
                             current_entry=entry,
                             current_song_progress=last_progress.current_song_progress if last_progress else None,
-                            message=f"Failed {entry.title}",
+                            message=f"Failed {entry.title}: {friendly_msg}",
                         )
                         self._safe_callback(opts.on_song_error, failure_progress, exc)
                         self._safe_callback(opts.progress_callback, failure_progress)
+                        break
                     else:
+                        logger.info(
+                            "Retrying %r (attempt %s/%s)",
+                            entry.title,
+                            attempt + 2,
+                            max_attempts,
+                        )
                         continue
-                if last_error is not None and attempt >= max(0, opts.retries):
-                    break
 
         cancelled = self._cancel_requested.is_set()
         elapsed_time = time.perf_counter() - start

@@ -1,15 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Download, ChevronDown, ChevronUp } from "lucide-react";
-import type { DownloadOptions } from "@/features/download/types";
+import { useSettings } from "@/features/settings";
+import { useFolderHistory } from "@/hooks";
 import { DownloadOptionsForm } from "@/features/download/DownloadOptions";
-
-const DEFAULT_OPTIONS: DownloadOptions = {
-  output_dir: "downloads",
-  quality: "best",
-  container: "auto",
-  embed_thumbnail: true,
-  embed_metadata: true,
-};
+import type { DownloadOptions } from "@/features/download/types";
 
 interface PlaylistBatchBarProps {
   selectedCount: number;
@@ -22,8 +16,33 @@ export function PlaylistBatchBar({
   onDownload,
   isLoading,
 }: PlaylistBatchBarProps) {
+  const { settings } = useSettings();
+  const { history } = useFolderHistory("playlist");
   const [expanded, setExpanded] = useState(false);
-  const [options, setOptions] = useState<DownloadOptions>(DEFAULT_OPTIONS);
+  const [options, setOptions] = useState<DownloadOptions>({
+    output_dir: history[0] ?? "downloads",
+    quality: settings.playlist.quality,
+    container: settings.playlist.container,
+    embed_thumbnail: settings.playlist.embed_thumbnail,
+    embed_metadata: settings.playlist.embed_metadata,
+  });
+
+  useEffect(() => {
+    setOptions((prev) => ({
+      ...prev,
+      output_dir: history[0] ?? prev.output_dir,
+    }));
+  }, [history]);
+
+  useEffect(() => {
+    setOptions((prev) => ({
+      ...prev,
+      quality: settings.playlist.quality,
+      container: settings.playlist.container,
+      embed_thumbnail: settings.playlist.embed_thumbnail,
+      embed_metadata: settings.playlist.embed_metadata,
+    }));
+  }, [settings.playlist]);
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -61,6 +80,7 @@ export function PlaylistBatchBar({
           <DownloadOptionsForm
             value={options}
             onChange={setOptions}
+            namespace="playlist"
             disabled={isLoading}
           />
         </div>

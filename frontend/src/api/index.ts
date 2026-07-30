@@ -5,6 +5,7 @@ export { download, openFolder } from "./download";
 export { getPlaylist, downloadPlaylist } from "./playlist";
 export { analyze, enrich, write, scanFolder, selectMatch, getFolders, analyzeStream } from "./pipeline";
 export { getJob, cancelJob, subscribeJob } from "./jobs";
+export { getAuthStatus, importCookies, removeCookies } from "./auth";
 
 export type { SearchRequest, SearchResult } from "./search";
 export type { DownloadRequest, DownloadResponse } from "./download";
@@ -35,4 +36,5 @@ export type {
   StreamEvent,
 } from "./pipeline";
 export type { JobStatus, JobEvent } from "./jobs";
+export type { AuthStatus } from "./auth";
 export type { JobState } from "../types";

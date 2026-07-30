@@ -98,6 +98,28 @@ def test_error_handling(client: TestClient) -> None:
     print(f"   Validation test: {r.status_code} (expected 422)")
 
 
+def test_auth_test_status(client: TestClient) -> None:
+    r = client.get("/api/auth/status")
+    assert r.status_code == 200
+    data = r.json()
+    assert "configured" in data
+    assert isinstance(data["configured"], bool)
+
+
+def test_auth_import_invalid_file(client: TestClient) -> None:
+    from io import BytesIO
+    r = client.post(
+        "/api/auth/cookies",
+        files={"file": ("bad.txt", BytesIO(b"not a cookie file"), "text/plain")},
+    )
+    assert r.status_code == 400
+
+
+def test_auth_delete_cookies(client: TestClient) -> None:
+    r = client.delete("/api/auth/cookies")
+    assert r.status_code == 204
+
+
 def test_sse(client: TestClient, job_id: str) -> None:
     print("8. SSE events")
     with client.stream("GET", f"/api/jobs/{job_id}/events") as r:

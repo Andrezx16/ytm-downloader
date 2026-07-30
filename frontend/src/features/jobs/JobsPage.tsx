@@ -3,12 +3,10 @@ import { cancelJob } from "@/api";
 import { Page } from "@/components/layout/Page";
 import { useJobs } from "./hooks";
 import { JobList } from "./JobList";
-import { JobSubscriber } from "./JobSubscriber";
 import { removeJob, updateJob } from "./store";
 
 export function JobsPage() {
   const jobs = useJobs();
-  const allIds = useMemo(() => jobs.map((j) => j.id), [jobs]);
 
   const active = useMemo(
     () => jobs.filter((j) => j.state === "queued" || j.state === "running"),
@@ -46,7 +44,6 @@ export function JobsPage() {
 
   return (
     <Page>
-      <JobSubscriber jobIds={allIds} />
       <div className="flex flex-col gap-6">
         <div>
           <h1 className="text-2xl font-semibold">Downloads</h1>

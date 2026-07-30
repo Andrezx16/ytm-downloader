@@ -72,6 +72,153 @@ class AudioDownloadOptions:
 
 
 @dataclass(slots=True, frozen=True)
+class DownloaderAuth:
+    """Authentication configuration for yt-dlp downloads.
+
+    cookies_file:
+        Path to an imported cookies.txt file (Netscape format).
+        When set, yt-dlp uses --cookiefile to authenticate.
+        When None, downloads run anonymously.
+    """
+
+    cookies_file: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Error classification
+# ---------------------------------------------------------------------------
+
+_PERMANENT_PATTERNS: tuple[str, ...] = (
+    "sign in to confirm",
+    "sign in to verify",
+    "cookies required",
+    "cookie",
+    "captcha",
+    "login required",
+    "login or",
+    "video unavailable",
+    "private video",
+    "this video is private",
+    "deleted video",
+    "video has been removed",
+    "geo restricted",
+    "not available in your country",
+    "not available in your region",
+    "blocked in your country",
+    "content not available",
+    "this video is not available",
+    "video is unavailable",
+    "status blocked",
+    "private channel",
+    "this channel is private",
+    "http error 401",
+    "http error 403",
+    "http 401",
+    "http 403",
+    "401 unauthorized",
+    "403 forbidden",
+    "forbidden",
+)
+
+_RETRYABLE_PATTERNS: tuple[str, ...] = (
+    "timeout",
+    "timed out",
+    "connection reset",
+    "connection refused",
+    "connection aborted",
+    "connection broken",
+    "network is unreachable",
+    "no route to host",
+    "name or service not known",
+    "temporary",
+    "try again",
+    "http error 500",
+    "http error 502",
+    "http error 503",
+    "http error 504",
+    "http 500",
+    "http 502",
+    "http 503",
+    "http 504",
+    "500 internal",
+    "502 bad",
+    "503 service",
+    "504 gateway",
+    "server error",
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "ENETUNREACH",
+)
+
+# Maps substrings in yt-dlp errors to user-friendly messages.
+_FRIENDLY_MESSAGE_MAP: tuple[tuple[str, str], ...] = (
+    ("sign in to confirm", "Your cookies are no longer valid. Please import a new cookies.txt."),
+    ("sign in to verify", "Your cookies are no longer valid. Please import a new cookies.txt."),
+    ("cookies required", "Your cookies are no longer valid. Please import a new cookies.txt."),
+    ("captcha", "YouTube presented a captcha. Try again later or import a new cookies.txt."),
+    ("login required", "Your cookies are no longer valid. Please import a new cookies.txt."),
+    ("private video", "This video is private."),
+    ("this video is private", "This video is private."),
+    ("deleted video", "This video has been deleted."),
+    ("video has been removed", "This video has been removed."),
+    ("video unavailable", "This video is unavailable."),
+    ("this video is not available", "This video is not available."),
+    ("video is unavailable", "This video is unavailable."),
+    ("geo restricted", "This video is not available in your region."),
+    ("not available in your country", "This video is not available in your region."),
+    ("not available in your region", "This video is not available in your region."),
+    ("blocked in your country", "This video is blocked in your region."),
+    ("content not available", "This content is not available."),
+    ("http 401", "Authentication required (HTTP 401). Import cookies.txt in Settings."),
+    ("http 403", "Access denied (HTTP 403). Import cookies.txt in Settings."),
+    ("401 unauthorized", "Authentication required (HTTP 401)."),
+    ("403 forbidden", "Access denied (HTTP 403). Import cookies.txt in Settings."),
+    ("timeout", "Connection timed out. The network may be slow."),
+    ("timed out", "Connection timed out. The network may be slow."),
+    ("connection reset", "Connection was reset. The network may be unstable."),
+    ("connection refused", "Connection refused. The server may be unavailable."),
+    ("network is unreachable", "Network is unreachable. Check your connection."),
+    ("http 500", "YouTube server error (HTTP 500). Try again later."),
+    ("http 502", "YouTube server error (HTTP 502). Try again later."),
+    ("http 503", "YouTube server error (HTTP 503). Try again later."),
+    ("http 504", "YouTube server error (HTTP 504). Try again later."),
+)
+
+
+def classify_download_error(error: Exception) -> Literal["retryable", "permanent", "unknown"]:
+    """Classify a download error as retryable, permanent, or unknown.
+
+    Unknown errors are treated as permanent to avoid infinite retries.
+    """
+    msg = str(error).lower()
+
+    for pattern in _PERMANENT_PATTERNS:
+        if pattern in msg:
+            return "permanent"
+
+    for pattern in _RETRYABLE_PATTERNS:
+        if pattern in msg:
+            return "retryable"
+
+    return "unknown"
+
+
+def friendly_download_error(error: Exception) -> str:
+    """Return a user-friendly error message for common download failures.
+
+    Falls back to the original error message if no friendly mapping exists.
+    """
+    msg = str(error).lower()
+
+    for pattern, friendly in _FRIENDLY_MESSAGE_MAP:
+        if pattern in msg:
+            return friendly
+
+    return str(error)
+
+
+@dataclass(slots=True, frozen=True)
 class SearchResult:
     video_id: str | None
     title: str
@@ -188,12 +335,28 @@ class YoutubeMetadataDiscovery:
     that phase 2 can reuse later for actual downloads.
     """
 
-    def __init__(self, *, ytdlp_options: Mapping[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        auth: DownloaderAuth | None = None,
+        ytdlp_options: Mapping[str, Any] | None = None,
+        cookies_path: str | None = None,
+    ) -> None:
+        self._auth = auth or DownloaderAuth()
         self._base_options: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
             "ignoreerrors": True,
         }
+
+        # Apply cookies.txt authentication if available
+        cookie_file = self._auth.cookies_file or cookies_path
+        if cookie_file:
+            self._base_options["cookiefile"] = cookie_file
+            logger.info("Auth mode: cookies.txt (%s)", cookie_file)
+        else:
+            logger.info("Auth mode: Anonymous")
+
         if ytdlp_options:
             self._base_options.update(dict(ytdlp_options))
 
@@ -863,6 +1026,7 @@ __all__ = [
     "AudioDownloadOptions",
     "DownloadProgress",
     "DownloadResult",
+    "DownloaderAuth",
     "FormatInfo",
     "PlaylistEntry",
     "PlaylistInfo",
@@ -872,4 +1036,6 @@ __all__ = [
     "YoutubeDownloader",
     "YoutubeMetadataDiscovery",
     "YouTubeDownloader",
+    "classify_download_error",
+    "friendly_download_error",
 ]
