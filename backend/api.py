@@ -273,6 +273,9 @@ def _run_playlist_download(
     playlist_dl = PlaylistDownloader(downloader=downloader)
     playlist = playlist_dl.get_playlist(url)
 
+    # Accumulate completed songs across all SSE polls — never overwrite this list.
+    completed_songs: list[dict[str, Any]] = []
+
     def _progress(progress: Any) -> None:
         if job.is_cancelled():
             playlist_dl.cancel()
@@ -286,6 +289,9 @@ def _run_playlist_download(
             )
         else:
             job.message = progress.message or ""
+
+        # Build metadata from scratch each time (no merge) to avoid stale fields
+        # from a previous song bleeding into the next one via the SSE poller.
         extras: dict[str, Any] = {
             "completed": completed,
             "selected_tracks": progress.selected_tracks,
@@ -293,7 +299,16 @@ def _run_playlist_download(
             "successful": progress.successful,
             "failed": progress.failed,
             "skipped": progress.skipped,
+            # Reset per-song fields explicitly
+            "filepath": "",
+            "output_directory": "",
+            "speed_bytes_per_second": None,
+            "eta_seconds": None,
+            "song_percent": None,
+            "current_track": None,
+            "completed_track": None,
         }
+
         if progress.current_entry is not None:
             extras["current_track"] = {
                 "title": progress.current_entry.title,
@@ -302,6 +317,7 @@ def _run_playlist_download(
                 "duration_seconds": progress.current_entry.duration_seconds,
                 "video_id": progress.current_entry.video_id,
             }
+
         song = progress.current_song_progress
         if song is not None:
             if song.speed_bytes_per_second is not None:
@@ -310,10 +326,26 @@ def _run_playlist_download(
                 extras["eta_seconds"] = song.eta_seconds
             if song.percent is not None:
                 extras["song_percent"] = song.percent
-        if progress.filepath is not None:
-            extras["filepath"] = progress.filepath
-            extras["output_directory"] = output_dir
-        job.update_metadata(extras)
+
+        if progress.filepath is not None and progress.current_entry is not None:
+            # Song just finished — append to the persistent completed_songs list.
+            # This list is never cleared, so SSE polling will always see all finished songs
+            # regardless of timing (eliminates the race condition).
+            completed_songs.append({
+                "title": progress.current_entry.title,
+                "artist": progress.current_entry.artist,
+                "thumbnail_url": progress.current_entry.thumbnail_url,
+                "duration_seconds": progress.current_entry.duration_seconds,
+                "video_id": progress.current_entry.video_id,
+                "filepath": progress.filepath,
+                "output_directory": output_dir,
+            })
+
+        # Always include the full accumulated list in metadata.
+        extras["completed_songs"] = list(completed_songs)
+
+        # Full replace (not merge) — no stale fields between songs.
+        job.set_metadata(extras)
 
     options = PlaylistDownloadOptions(
         output_directory=output_dir,
@@ -528,22 +560,28 @@ async def job_events(job_id: str) -> StreamingResponse:
         raise HTTPException(status_code=404, detail="Job not found")
 
     async def _event_generator():  # type: ignore[no-untyped-def]
-        while True:
-            current = jm.get(job_id)
-            if current is None:
-                break
-            data = json.dumps({
-                "id": current.id,
-                "state": current.state.value,
-                "progress": current.progress,
-                "message": current.message,
-                "metadata": current.metadata,
-                "error": str(current.error) if current.error else None,
-            })
-            yield f"data: {data}\n\n"
-            if current.state in TERMINAL_STATES:
-                break
-            await asyncio.sleep(0.5)
+        loop = asyncio.get_running_loop()
+        queue, unsubscribe = job.subscribe(loop)
+        
+        try:
+            # Yield initial state immediately
+            initial = json.dumps(job._snapshot())
+            yield f"data: {initial}\n\n"
+            
+            if job.state in TERMINAL_STATES:
+                return
+
+            while True:
+                snapshot = await queue.get()
+                data = json.dumps(snapshot)
+                yield f"data: {data}\n\n"
+                
+                # Terminate stream if job is in a terminal state
+                terminal_values = {s.value for s in TERMINAL_STATES}
+                if snapshot["state"] in terminal_values:
+                    break
+        finally:
+            unsubscribe()
 
     return StreamingResponse(
         _event_generator(),

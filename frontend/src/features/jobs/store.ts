@@ -33,16 +33,39 @@ export function getJobSnapshot(id: string): JobRecord | undefined {
   return store.jobs.get(id);
 }
 
+export function getAllJobIds(): Set<string> {
+  return new Set(store.jobs.keys());
+}
+
+export function onStoreChange(fn: () => void): () => void {
+  listeners.push(fn);
+  return () => {
+    listeners = listeners.filter((l) => l !== fn);
+  };
+}
+
 function buildSorted(): JobRecord[] {
   return Array.from(store.jobs.values()).sort(
     (a, b) => b.created_at - a.created_at,
   );
 }
 
+function metaFingerprint(meta: Record<string, unknown>): string {
+  const ct = meta.current_track as Record<string, unknown> | undefined;
+  return [
+    meta.song_percent ?? "",
+    meta.speed_bytes_per_second ?? "",
+    meta.eta_seconds ?? "",
+    meta.filepath ?? "",
+    ct?.video_id ?? "",
+    ct?.title ?? "",
+  ].join(":");
+}
+
 function sortedKey(jobs: JobRecord[]): string {
   let key = "";
   for (const j of jobs) {
-    key += `${j.id}:${j.state}:${j.progress};`;
+    key += `${j.id}:${j.state}:${j.progress}:${metaFingerprint(j.metadata)};`;
   }
   return key;
 }

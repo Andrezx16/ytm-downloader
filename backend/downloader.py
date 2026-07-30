@@ -346,6 +346,7 @@ class YoutubeMetadataDiscovery:
         self._base_options: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
+            "noprogress": True,
             "ignoreerrors": True,
         }
 
@@ -440,6 +441,7 @@ class YoutubeMetadataDiscovery:
         ydl_options: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
+            "noprogress": True,
             "noplaylist": True,
             "paths": {"home": str(output_path)},
             "outtmpl": {"default": f"{filename_base}.%(ext)s"},

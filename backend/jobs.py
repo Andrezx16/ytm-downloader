@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import enum
 import logging
 import threading
@@ -37,6 +38,64 @@ class Job:
     error: BaseException | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     _cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    # List of per-subscriber callbacks; each SSE connection adds one entry.
+    _subscribers: list[Callable[[dict[str, Any]], None]] = field(default_factory=list, repr=False)
+
+    # --- Snapshot & push helpers ---
+
+    def _snapshot(self) -> dict[str, Any]:
+        """Return a JSON-serialisable snapshot of the current job state."""
+        return {
+            "id": self.id,
+            "state": self.state.value,
+            "progress": self.progress,
+            "message": self.message,
+            "metadata": dict(self.metadata),
+            "error": str(self.error) if self.error else None,
+        }
+
+    def _notify_all(self) -> None:
+        """Push current snapshot to every SSE subscriber. Safe to call from any thread."""
+        if not self._subscribers:
+            return
+        snapshot = self._snapshot()
+        for notify in list(self._subscribers):  # copy → safe against concurrent mutation
+            try:
+                notify(snapshot)
+            except Exception:
+                pass
+
+    def subscribe(
+        self,
+        loop: asyncio.AbstractEventLoop,
+    ) -> tuple[asyncio.Queue[dict[str, Any]], Callable[[], None]]:
+        """Register an SSE subscriber.
+
+        Must be called from the async (event-loop) thread.
+        Returns (queue, unsubscribe_fn).
+        The queue receives a snapshot dict every time the job changes.
+        Call unsubscribe_fn when the SSE connection closes.
+        """
+        q: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+        def _notify(snapshot: dict[str, Any]) -> None:
+            # Called from a background (download) thread — bridge to the event loop.
+            try:
+                loop.call_soon_threadsafe(q.put_nowait, snapshot)
+            except RuntimeError:
+                pass  # event loop already closed
+
+        self._subscribers.append(_notify)
+
+        def _unsubscribe() -> None:
+            try:
+                self._subscribers.remove(_notify)
+            except ValueError:
+                pass  # already removed
+
+        return q, _unsubscribe
+
+    # --- State / metadata mutators (auto-notify on change) ---
 
     @property
     def cancelled(self) -> bool:
@@ -49,9 +108,16 @@ class Job:
         self.progress = max(0.0, min(100.0, progress))
         if message is not None:
             self.message = message
+        self._notify_all()
 
     def update_metadata(self, metadata: dict[str, Any]) -> None:
         self.metadata.update(metadata)
+        self._notify_all()
+
+    def set_metadata(self, metadata: dict[str, Any]) -> None:
+        """Replace metadata entirely (no merge) to avoid stale fields."""
+        self.metadata = metadata
+        self._notify_all()
 
     def _request_cancel(self) -> None:
         self._cancel_event.set()
@@ -168,6 +234,7 @@ class JobManager:
             job.state = JobState.RUNNING
             job.started_at = datetime.now().timestamp()
         logger.info("job.started id=%s", job.id)
+        job._notify_all()  # push RUNNING state to any early subscribers
 
         try:
             if fn is not None:
@@ -194,3 +261,5 @@ class JobManager:
         finally:
             with self._lock:
                 job.finished_at = datetime.now().timestamp()
+            job._notify_all()  # push terminal state — SSE generator will close the stream
+
