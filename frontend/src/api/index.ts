@@ -4,7 +4,7 @@ export { search } from "./search";
 export { download, openFolder } from "./download";
 export { getPlaylist, downloadPlaylist } from "./playlist";
 export { analyze, enrich, write, scanFolder, selectMatch, getFolders, analyzeStream } from "./pipeline";
-export { getJob, cancelJob, subscribeJob } from "./jobs";
+export { getJob, cancelJob, pauseJob, resumeJob, subscribeJob } from "./jobs";
 export { getAuthStatus, importCookies, removeCookies } from "./auth";
 
 export type { SearchRequest, SearchResult } from "./search";

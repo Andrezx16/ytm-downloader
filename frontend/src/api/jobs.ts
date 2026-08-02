@@ -36,6 +36,20 @@ export function cancelJob(id: string, signal?: AbortSignal): Promise<JobStatus> 
   });
 }
 
+export function pauseJob(id: string, signal?: AbortSignal): Promise<JobStatus> {
+  return request<JobStatus>(`/jobs/${id}/pause`, {
+    method: "POST",
+    signal,
+  });
+}
+
+export function resumeJob(id: string, signal?: AbortSignal): Promise<JobStatus> {
+  return request<JobStatus>(`/jobs/${id}/resume`, {
+    method: "POST",
+    signal,
+  });
+}
+
 export function subscribeJob(
   id: string,
   onEvent: (event: JobEvent) => void,

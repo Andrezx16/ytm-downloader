@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class JobState(enum.Enum):
     QUEUED = "queued"
     RUNNING = "running"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -38,6 +39,7 @@ class Job:
     error: BaseException | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     _cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    _pause_event: threading.Event = field(default_factory=threading.Event, repr=False)
     # List of per-subscriber callbacks; each SSE connection adds one entry.
     _subscribers: list[Callable[[dict[str, Any]], None]] = field(default_factory=list, repr=False)
 
@@ -103,6 +105,24 @@ class Job:
 
     def is_cancelled(self) -> bool:
         return self._cancel_event.is_set()
+
+    def is_paused(self) -> bool:
+        return self._pause_event.is_set()
+
+    def pause(self) -> None:
+        """Pause the job. The download loop must check is_paused() and wait."""
+        self._pause_event.set()
+        self._notify_all()
+
+    def resume(self) -> None:
+        """Resume a paused job."""
+        self._pause_event.clear()
+        self._notify_all()
+
+    def wait_if_paused(self) -> None:
+        """Block until the job is resumed. Returns immediately if not paused."""
+        while self._pause_event.is_set():
+            self._pause_event.wait(timeout=0.5)
 
     def set_progress(self, progress: float, message: str | None = None) -> None:
         self.progress = max(0.0, min(100.0, progress))
@@ -174,6 +194,26 @@ class JobManager:
                 return False
             job._request_cancel()
         logger.info("job.cancel_requested id=%s", job.id)
+        return True
+
+    def pause(self, job: Job) -> bool:
+        with self._lock:
+            if job.state not in (JobState.RUNNING, JobState.PAUSED):
+                return False
+            if job.state == JobState.PAUSED:
+                return False  # already paused
+            job.state = JobState.PAUSED
+            job.pause()
+        logger.info("job.paused id=%s", job.id)
+        return True
+
+    def resume(self, job: Job) -> bool:
+        with self._lock:
+            if job.state != JobState.PAUSED:
+                return False
+            job.state = JobState.RUNNING
+            job.resume()
+        logger.info("job.resumed id=%s", job.id)
         return True
 
     def remove(self, job: Job) -> bool:

@@ -4,7 +4,7 @@ import type { JobEvent } from "@/api/jobs";
 import { addHistoryEntry } from "@/features/downloads/history-store";
 import { updateJob, getJobSnapshot, getAllJobIds, onStoreChange } from "./store";
 
-const ACTIVE_STATES = new Set(["queued", "running"]);
+const ACTIVE_STATES = new Set(["queued", "running", "paused"]);
 const TERMINAL_STATES = new Set(["completed", "failed", "cancelled"]);
 
 function createHistoryId(jobId: string, videoId: string | undefined): string {
@@ -32,8 +32,6 @@ function tryAddHistory(jobId: string, event: JobEvent) {
   if (completedSongs && completedSongs.length > 0) {
     for (const song of completedSongs) {
       if (!song.filepath || !song.title) continue;
-      // addHistoryEntry already deduplicates by id, so calling this
-      // repeatedly with the same song is safe.
       addHistoryEntry({
         id: createHistoryId(jobId, song.video_id),
         title: song.title,
@@ -43,9 +41,43 @@ function tryAddHistory(jobId: string, event: JobEvent) {
         filepath: song.filepath,
         output_dir: song.output_directory ?? "",
         downloaded_at: Date.now(),
+        status: "completed",
       });
     }
-    return;
+  }
+
+  // `failed_songs` is a cumulative list of songs that failed permanently.
+  const failedSongs = meta.failed_songs as
+    | Array<{
+        title?: string;
+        artist?: string;
+        thumbnail_url?: string;
+        duration_seconds?: number;
+        video_id?: string;
+        url?: string;
+        output_directory?: string;
+        error_message?: string;
+      }>
+    | undefined;
+
+  if (failedSongs && failedSongs.length > 0) {
+    for (const song of failedSongs) {
+      if (!song.title) continue;
+      addHistoryEntry({
+        id: createHistoryId(jobId, song.video_id),
+        title: song.title,
+        artist: song.artist ?? null,
+        thumbnail_url: song.thumbnail_url ?? null,
+        duration_seconds: song.duration_seconds ?? null,
+        filepath: "",
+        output_dir: song.output_directory ?? "",
+        downloaded_at: Date.now(),
+        status: "failed",
+        error_message: song.error_message ?? "Download failed",
+        video_id: song.video_id,
+        url: song.url,
+      });
+    }
   }
 
   // Fallback for single-track (search) downloads: use filepath from metadata
@@ -55,6 +87,7 @@ function tryAddHistory(jobId: string, event: JobEvent) {
 
   if (TERMINAL_STATES.has(event.state)) {
     const snap = getJobSnapshot(jobId);
+    const isFailed = event.state === "failed" || event.state === "cancelled";
     addHistoryEntry({
       id: jobId,
       title: (meta.title as string) || snap?.title || "Download",
@@ -64,6 +97,10 @@ function tryAddHistory(jobId: string, event: JobEvent) {
       filepath,
       output_dir: (meta.output_directory as string) ?? "",
       downloaded_at: Date.now(),
+      status: isFailed ? "failed" : "completed",
+      error_message: isFailed ? (event.error ?? "Download failed") : undefined,
+      video_id: (meta.video_id as string) ?? undefined,
+      url: (meta.url as string) ?? undefined,
     });
   }
 }

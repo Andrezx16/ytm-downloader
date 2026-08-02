@@ -9,7 +9,7 @@ export function JobsPage() {
   const jobs = useJobs();
 
   const active = useMemo(
-    () => jobs.filter((j) => j.state === "queued" || j.state === "running"),
+    () => jobs.filter((j) => j.state === "queued" || j.state === "running" || j.state === "paused"),
     [jobs],
   );
 

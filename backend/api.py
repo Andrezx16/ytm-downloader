@@ -202,6 +202,9 @@ def _run_download(
     def _progress(progress: Any) -> None:
         if job.is_cancelled():
             return
+        job.wait_if_paused()
+        if job.is_cancelled():
+            return
         status = progress.status
         if status == "downloading":
             percent = progress.percent
@@ -273,10 +276,16 @@ def _run_playlist_download(
     playlist_dl = PlaylistDownloader(downloader=downloader)
     playlist = playlist_dl.get_playlist(url)
 
-    # Accumulate completed songs across all SSE polls — never overwrite this list.
+    # Accumulate completed/failed songs across all SSE polls — never overwrite these lists.
     completed_songs: list[dict[str, Any]] = []
+    failed_songs: list[dict[str, Any]] = []
+    _seen_failed: set[str] = set()  # track video_ids already added to failed_songs
 
     def _progress(progress: Any) -> None:
+        if job.is_cancelled():
+            playlist_dl.cancel()
+            return
+        job.wait_if_paused()
         if job.is_cancelled():
             playlist_dl.cancel()
             return
@@ -341,8 +350,29 @@ def _run_playlist_download(
                 "output_directory": output_dir,
             })
 
-        # Always include the full accumulated list in metadata.
+        # Detect failed songs: no filepath, has current_entry, and message starts with "Failed"
+        if (
+            progress.filepath is None
+            and progress.current_entry is not None
+            and progress.message
+            and progress.message.startswith("Failed")
+            and progress.current_entry.video_id not in _seen_failed
+        ):
+            _seen_failed.add(progress.current_entry.video_id)
+            failed_songs.append({
+                "title": progress.current_entry.title,
+                "artist": progress.current_entry.artist,
+                "thumbnail_url": progress.current_entry.thumbnail_url,
+                "duration_seconds": progress.current_entry.duration_seconds,
+                "video_id": progress.current_entry.video_id,
+                "url": progress.current_entry.url,
+                "output_directory": output_dir,
+                "error_message": progress.message,
+            })
+
+        # Always include the full accumulated lists in metadata.
         extras["completed_songs"] = list(completed_songs)
+        extras["failed_songs"] = list(failed_songs)
 
         # Full replace (not merge) — no stale fields between songs.
         job.set_metadata(extras)
@@ -549,6 +579,30 @@ async def cancel_job(job_id: str) -> JobResponse:
     if not jm.cancel(job):
         raise HTTPException(status_code=409, detail="Job already in terminal state")
     logger.info("job_cancelled id=%s", job_id)
+    return _job_response(job)
+
+
+@router.post("/jobs/{job_id}/pause")
+async def pause_job(job_id: str) -> JobResponse:
+    jm: JobManager = app.state.job_manager
+    job = jm.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not jm.pause(job):
+        raise HTTPException(status_code=409, detail="Job cannot be paused")
+    logger.info("job_paused id=%s", job_id)
+    return _job_response(job)
+
+
+@router.post("/jobs/{job_id}/resume")
+async def resume_job(job_id: str) -> JobResponse:
+    jm: JobManager = app.state.job_manager
+    job = jm.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not jm.resume(job):
+        raise HTTPException(status_code=409, detail="Job is not paused")
+    logger.info("job_resumed id=%s", job_id)
     return _job_response(job)
 
 
