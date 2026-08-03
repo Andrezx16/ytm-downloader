@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { scanFolder, analyzeStream, selectMatch, write, readTags } from "@/api/pipeline";
+import { scanFolder, analyzeStream, selectMatch, write, readTags, enrichDeezer } from "@/api/pipeline";
 import type { ScanFile, MatchCandidate } from "@/api/pipeline";
 import { ApiError } from "@/api/errors";
 import { useFolderHistory } from "@/hooks";
@@ -426,6 +426,45 @@ export function useMetadataFlow() {
     [selectMutation],
   );
 
+  const [isEnrichingDeezer, setIsEnrichingDeezer] = useState(false);
+
+  const handleEnrichDeezer = useCallback(async () => {
+    const q = queueRef.current;
+    const idx = currentIndexRef.current;
+    if (idx >= q.length) return;
+    const entry = q[idx];
+    if (entry.selectedIndex == null || entry.selectedIndex < 0) return;
+
+    setIsEnrichingDeezer(true);
+    try {
+      const result = await enrichDeezer({
+        matches: entry.matches,
+        selected_index: entry.selectedIndex,
+      });
+      if (result.warning) return;
+      // Merge enriched fields into current fields
+      const e = queueRef.current[idx];
+      if (e && e.fields) {
+        const m = result.match;
+        e.fields = {
+          ...e.fields,
+          title: m.title ?? e.fields.title,
+          artist: m.artist ?? e.fields.artist,
+          album: m.album ?? e.fields.album,
+          album_artist: m.album_artist ?? e.fields.album_artist,
+          year: m.year != null ? String(m.year) : e.fields.year,
+          track: m.track_number != null ? String(m.track_number) : e.fields.track,
+          disc: m.disc_number != null ? String(m.disc_number) : e.fields.disc,
+        };
+        setQueue([...queueRef.current]);
+      }
+    } catch {
+      // silently ignore
+    } finally {
+      setIsEnrichingDeezer(false);
+    }
+  }, []);
+
   const handleSelectNone = useCallback(async () => {
     const q = queueRef.current;
     const idx = currentIndexRef.current;
@@ -590,6 +629,8 @@ export function useMetadataFlow() {
     handleSelectCandidate,
     handleSelectNone,
     handleRescan,
+    handleEnrichDeezer,
+    isEnrichingDeezer,
     isManualEdit: currentEntry?.manualEdit ?? false,
     isSelecting: selectMutation.isPending,
     selectError: selectMutation.error as ApiError | null,

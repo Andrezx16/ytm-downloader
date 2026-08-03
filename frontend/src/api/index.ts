@@ -3,7 +3,7 @@ export { request } from "./client";
 export { search } from "./search";
 export { download, openFolder } from "./download";
 export { getPlaylist, downloadPlaylist } from "./playlist";
-export { analyze, enrich, write, scanFolder, selectMatch, getFolders, analyzeStream, readTags } from "./pipeline";
+export { analyze, enrich, write, scanFolder, selectMatch, getFolders, analyzeStream, readTags, enrichDeezer } from "./pipeline";
 export { getJob, cancelJob, pauseJob, resumeJob, subscribeJob } from "./jobs";
 export { getAuthStatus, importCookies, removeCookies } from "./auth";
 
@@ -34,6 +34,8 @@ export type {
   AnalysisCompleteEvent,
   AnalysisErrorEvent,
   StreamEvent,
+  EnrichDeezerRequest,
+  EnrichDeezerResponse,
 } from "./pipeline";
 export type { JobStatus, JobEvent } from "./jobs";
 export type { AuthStatus } from "./auth";

@@ -27,10 +27,11 @@ RECOMMENDED_THRESHOLD = 0.9
 
 # Per-provider limits: (query_limit, min_results_for_fallback)
 _PROVIDER_LIMITS: dict[str, tuple[int, int]] = {
+    "spotify": (2, 2),
     "deezer": (1, 1),
     "apple": (1, 1),
-    "lastfm": (3, 3),
-    "musicbrainz": (3, 3),
+    "lastfm": (2, 2),
+    "musicbrainz": (2, 2),
 }
 _DEFAULT_PROVIDER_LIMITS = (5, 1)
 

@@ -52,6 +52,7 @@ class DeezerProvider(MusicProvider):
             track_id = track.get("id")
 
             artist_str = primary_artist
+            detail: dict | None = None
             if track_id:
                 detail = await self._get_track_detail(track_id)
                 if detail:
@@ -66,6 +67,10 @@ class DeezerProvider(MusicProvider):
                     album_artist=primary_artist,
                     cover_url=album.get("cover_xl") or album.get("cover_big"),
                     duration_ms=(track.get("duration") or 0) * 1000,
+                    track_number=detail["track_number"] if detail else None,
+                    disc_number=detail["disc_number"] if detail else None,
+                    isrc=detail["isrc"] if detail else None,
+                    year=detail["year"] if detail else None,
                 )
             )
 

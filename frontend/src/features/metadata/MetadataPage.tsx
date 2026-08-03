@@ -31,6 +31,8 @@ export function MetadataPage() {
     handleSelectCandidate,
     handleSelectNone,
     handleRescan,
+    handleEnrichDeezer,
+    isEnrichingDeezer,
     isSelecting,
     selectError,
     handleSetFields,
@@ -119,6 +121,12 @@ export function MetadataPage() {
               queueIndex={currentIndex}
               queueTotal={queue.length}
               isCurrentLoading={currentEntry.status === "analyzing"}
+              onEnrichDeezer={
+                currentEntry.selectedIndex != null && currentEntry.selectedIndex >= 0
+                  ? handleEnrichDeezer
+                  : undefined
+              }
+              isEnrichingDeezer={isEnrichingDeezer}
             />
           </div>
         )}

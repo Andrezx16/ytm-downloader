@@ -13,6 +13,7 @@ from matcher import FileInfo, find_matches, find_matches_stream, merge_missing_f
 from providers.apple import AppleMusicProvider
 from providers.base import MatchCandidate, MusicProvider
 from providers.deezer import DeezerProvider
+from providers.spotify import SpotifyProvider
 from providers.lastfm import LastFmProvider
 from providers.musicbrainz import MusicBrainzProvider
 from writer import FinalMetadata, write_metadata as write_audio_metadata
@@ -59,6 +60,7 @@ class MetadataPipeline:
             providers
             if providers is not None
             else [
+                SpotifyProvider(),
                 DeezerProvider(),
                 AppleMusicProvider(),
                 MusicBrainzProvider(),
@@ -165,9 +167,11 @@ class MetadataPipeline:
 
         selected = matches[selected_index]
         merged = merge_missing_fields(selected, matches)
-        merged, deezer_warning = await self._apply_deezer_details(merged, matches)
-        if deezer_warning is not None:
-            warnings.append(deezer_warning)
+
+        # Best cover: pick from any candidate with confidence > 0.80
+        best_cover = _best_cover_from_matches(matches)
+        if best_cover:
+            merged["cover_url"] = best_cover
 
         lyrics: str | None = None
         try:
@@ -210,9 +214,11 @@ class MetadataPipeline:
             )
 
         merged = merge_missing_fields(selected_match, analysis.matches)
-        merged, deezer_warning = await self._apply_deezer_details(merged, analysis.matches)
-        if deezer_warning is not None:
-            warnings.append(deezer_warning)
+
+        # Best cover: pick from any candidate with confidence > 0.80
+        best_cover = _best_cover_from_matches(analysis.matches)
+        if best_cover:
+            merged["cover_url"] = best_cover
 
         lyrics = await get_lyrics(merged["title"], merged["artist"])
         if lyrics is None:
@@ -256,44 +262,26 @@ class MetadataPipeline:
             wrote_metadata=wrote_metadata,
         )
 
-    async def write_metadata(self, path: str | Path, metadata: FinalMetadata) -> None:
-        await write_audio_metadata(path, metadata)
-
-    def _select_match(
+    async def enrich_deezer_details(
         self,
-        matches: Sequence[MatchCandidate],
-        selected_index: int | None,
-    ) -> MatchCandidate | None:
-        if not matches:
-            return None
-        if selected_index is None:
-            return matches[0]
-        if selected_index < 0 or selected_index >= len(matches):
-            raise IndexError(f"Selected candidate out of range: {selected_index}")
-        return matches[selected_index]
-
-    async def _apply_deezer_details(
-        self,
-        selected: MatchCandidate,
-        matches: Sequence[MatchCandidate],
+        matches: list[MatchCandidate],
+        selected_index: int,
     ) -> tuple[MatchCandidate, str | None]:
-        still_missing = any(selected.get(field) is None for field in ("track_number", "disc_number", "isrc", "year"))
-        also_missing = any(
-            selected.get(field) is None or selected.get(field) == ""
-            for field in ("album", "album_artist")
-        )
-        deezer_candidate = next((match for match in matches if match["source"] == "deezer"), None)
-        if not still_missing and not also_missing:
-            return selected, None
+        """Fetch Deezer full details for a selected candidate (manual on-demand)."""
+        if not matches or selected_index < 0 or selected_index >= len(matches):
+            return {}, "Invalid candidate selection"
+
+        selected = matches[selected_index]
+        deezer_candidate = next((m for m in matches if m["source"] == "deezer"), None)
         if not deezer_candidate or not deezer_candidate.get("source_id"):
-            return selected, None
+            return selected, "No Deezer candidate available"
 
         deezer_provider = next(
-            (provider for provider in self._providers if provider.name == "deezer" and hasattr(provider, "get_full_details")),
+            (p for p in self._providers if p.name == "deezer" and hasattr(p, "get_full_details")),
             None,
         )
         if deezer_provider is None:
-            return selected, "Deezer details unavailable"
+            return selected, "Deezer provider unavailable"
 
         try:
             source_id = cast(str, deezer_candidate["source_id"])
@@ -311,6 +299,50 @@ class MetadataPipeline:
                 enriched[key] = value  # type: ignore[literal-required]
 
         return enriched, None
+
+    async def write_metadata(self, path: str | Path, metadata: FinalMetadata) -> None:
+        await write_audio_metadata(path, metadata)
+
+    def _select_match(
+        self,
+        matches: Sequence[MatchCandidate],
+        selected_index: int | None,
+    ) -> MatchCandidate | None:
+        if not matches:
+            return None
+        if selected_index is None:
+            return matches[0]
+        if selected_index < 0 or selected_index >= len(matches):
+            raise IndexError(f"Selected candidate out of range: {selected_index}")
+        return matches[selected_index]
+
+
+# Cover art resolution priority by provider
+_COVER_RES_PRIORITY: dict[str, int] = {
+    "deezer": 100,
+    "spotify": 90,
+    "apple": 80,
+    "ytmusic": 60,
+    "lastfm": 50,
+    "musicbrainz": 0,
+}
+
+
+def _best_cover_from_matches(matches: Sequence[MatchCandidate]) -> str | None:
+    """Pick the best cover_url from any candidate that has one.
+
+    Uses resolution priority by provider (Deezer > Apple > Spotify > ytmusic
+    > lastfm > musicbrainz) as primary sort, confidence as tiebreaker.
+    """
+    scored = [
+        (m, m.get("confidence") or 0, _COVER_RES_PRIORITY.get(m.get("source", ""), 30))
+        for m in matches
+        if m.get("cover_url")
+    ]
+    if not scored:
+        return None
+    scored.sort(key=lambda x: (-x[2], -x[1]))
+    return scored[0][0].get("cover_url")
 
 
 __all__ = ["MetadataAnalysis", "MetadataPipeline", "PipelineResult", "SelectResult"]

@@ -37,6 +37,8 @@ interface MetadataFormProps {
   queueIndex: number;
   queueTotal: number;
   isCurrentLoading: boolean;
+  onEnrichDeezer?: () => void;
+  isEnrichingDeezer?: boolean;
 }
 
 function sourceLabel(source: string): string {
@@ -291,6 +293,8 @@ export function MetadataForm({
   queueIndex,
   queueTotal,
   isCurrentLoading,
+  onEnrichDeezer,
+  isEnrichingDeezer,
 }: MetadataFormProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
@@ -438,7 +442,7 @@ export function MetadataForm({
         {isSelecting && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Enriching with merge + Deezer details + lyrics...
+            Enriching with merge + lyrics...
           </div>
         )}
         {selectError && (
@@ -539,6 +543,21 @@ export function MetadataForm({
           >
             <Zap className="size-4" />
             Re-scan
+          </button>
+        )}
+        {onEnrichDeezer && (
+          <button
+            type="button"
+            onClick={onEnrichDeezer}
+            disabled={disabled || isWriting || isEnrichingDeezer}
+            className="flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            {isEnrichingDeezer ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Disc3 className="size-4" />
+            )}
+            Deezer details
           </button>
         )}
         <button

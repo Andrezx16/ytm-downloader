@@ -8,3 +8,4 @@ fastapi>=0.111
 uvicorn[standard]>=0.30
 ytmusicapi>=1.7.4
 python-dotenv>=1.0.1
+spotifyscraper>=3.9

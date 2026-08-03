@@ -1,117 +1,112 @@
 """
-Spotify: requiere credenciales de una app registrada en
-https://developer.spotify.com/dashboard (gratis de crear).
+Spotify: datos públicos sin API key usando spotifyscraper.
 
-Usa el flujo "Client Credentials" (sin login de usuario, solo para
-lectura de catálogo público) — suficiente para búsqueda de metadata.
-Docs: https://developer.spotify.com/documentation/web-api/tutorials/client-credentials-flow
-
-STUB EN LA PRÁCTICA — NO INCLUIDO EN LA LISTA DE PROVIDERS ACTIVOS.
-Desde el 11 de febrero de 2026, Spotify exige que el dueño de la app
-tenga una cuenta Premium para usar Development Mode (antes solo lo
-exigían para endpoints de playback, ahora aplica a toda la API,
-incluida la búsqueda de catálogo que usa este módulo). Ver:
-https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security
-
-El código de abajo es funcional y no necesita cambios — si en algún
-momento tenés Premium, alcanza con setear SPOTIFY_CLIENT_ID y
-SPOTIFY_CLIENT_SECRET y agregar SpotifyProvider() a la lista de
-providers en api.py. Hasta entonces, el proyecto corre solo con
-Deezer + MusicBrainz (y Apple Music si se implementa a futuro).
+El token anónimo se obtiene de las páginas embed de Spotify, sin necesidad
+de credenciales ni cuenta Premium. Docs: https://spotifyscraper.readthedocs.io
 """
 
 from __future__ import annotations
 
-import os
-import time
+import logging
 
-import httpx
+from spotify_scraper import AsyncSpotifyClient
 
 from .base import MatchCandidate, MusicProvider
 
-TOKEN_URL = "https://accounts.spotify.com/api/token"
-API_BASE = "https://api.spotify.com/v1"
+logger = logging.getLogger(__name__)
 
 
 class SpotifyProvider(MusicProvider):
     name = "spotify"
 
-    def __init__(self, client_id: str | None = None, client_secret: str | None = None) -> None:
-        self._client_id = client_id or os.environ.get("SPOTIFY_CLIENT_ID", "")
-        self._client_secret = client_secret or os.environ.get("SPOTIFY_CLIENT_SECRET", "")
-        self._client = httpx.AsyncClient(timeout=10.0)
-        self._token: str | None = None
-        self._token_expires_at: float = 0.0
-
-    async def _get_token(self) -> str | None:
-        if self._token and time.time() < self._token_expires_at:
-            return self._token
-
-        if not self._client_id or not self._client_secret:
-            return None
-
-        try:
-            resp = await self._client.post(
-                TOKEN_URL,
-                data={"grant_type": "client_credentials"},
-                auth=(self._client_id, self._client_secret),
-            )
-            resp.raise_for_status()
-        except httpx.HTTPError:
-            return None
-
-        data = resp.json()
-        self._token = data["access_token"]
-        # Restamos 60s de margen de seguridad antes de que expire.
-        self._token_expires_at = time.time() + data.get("expires_in", 3600) - 60
-        return self._token
+    def __init__(self) -> None:
+        self._client = AsyncSpotifyClient(timeout=10.0)
 
     async def search(self, title: str, artist: str, limit: int = 5) -> list[MatchCandidate]:
-        token = await self._get_token()
-        if not token:
-            return []
-
-        params = {"q": f'track:"{title}" artist:"{artist}"', "type": "track", "limit": limit}
-        headers = {"Authorization": f"Bearer {token}"}
-
         try:
-            resp = await self._client.get(f"{API_BASE}/search", params=params, headers=headers)
-            resp.raise_for_status()
-        except httpx.HTTPError:
+            results = await self._client.search(
+                f"{title} {artist}",
+                types=("track",),
+                limit=limit,
+            )
+        except Exception as e:
+            logger.warning("Spotify falló: %s", e)
             return []
 
-        data = resp.json()
         candidates: list[MatchCandidate] = []
 
-        for track in data.get("tracks", {}).get("items", []):
-            album = track.get("album", {})
-            images = album.get("images", [])
+        for track in results.tracks:
+            album = track.album
+            artists = ", ".join(a.name for a in track.artists if a.name)
 
-            candidates.append(
-                self._empty_candidate(
-                    title=track.get("name", ""),
-                    artist=", ".join(a["name"] for a in track.get("artists", [])),
-                    album=album.get("name", ""),
-                    album_artist=(album.get("artists") or [{}])[0].get("name"),
-                    year=_extract_year(album.get("release_date")),
-                    isrc=track.get("external_ids", {}).get("isrc"),
-                    cover_url=images[0]["url"] if images else None,
-                    duration_ms=track.get("duration_ms") or 0,
-                    track_number=track.get("track_number"),
-                    disc_number=track.get("disc_number"),
-                )
+            candidate = self._empty_candidate(
+                source_id=track.id,
+                title=track.name,
+                artist=artists,
+                album=album.name if album else "",
+                album_artist=artists.split(", ")[0] if artists else None,
+                year=_extract_year(track.release_date),
+                cover_url=_best_image(track),
+                duration_ms=track.duration_ms,
+                track_number=track.track_number,
             )
 
+            # Enrich with get_track() for fields missing from search results
+            if track.track_number is None or track.release_date is None:
+                try:
+                    full = await self._client.get_track(track.id)
+                    if full:
+                        if candidate["track_number"] is None and full.track_number is not None:
+                            candidate["track_number"] = full.track_number
+                        if candidate["year"] is None:
+                            candidate["year"] = _extract_year(full.release_date)
+                except Exception as e:
+                    logger.debug("Spotify get_track falló para id=%s: %s", track.id, e)
+
+            candidates.append(candidate)
+
         return candidates
+
+    async def get_full_details(self, track_id: str) -> dict | None:
+        try:
+            track = await self._client.get_track(track_id)
+        except Exception as e:
+            logger.debug("Spotify get_track falló para id=%s: %s", track_id, e)
+            return None
+
+        album = track.album
+        return {
+            "track_number": track.track_number,
+            "disc_number": None,
+            "isrc": None,
+            "year": _extract_year(track.release_date),
+        }
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
 
-def _extract_year(date_str: str | None) -> int | None:
-    if not date_str:
+def _extract_year(date) -> int | None:
+    if date is None:
         return None
     try:
-        return int(date_str.split("-")[0])
-    except ValueError:
+        return date.year
+    except AttributeError:
+        pass
+    if isinstance(date, str):
+        try:
+            return int(date.split("-")[0])
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
+def _best_image(track) -> str | None:
+    images = track.images
+    if not images:
         return None
+    best = max(
+        images,
+        key=lambda img: (getattr(img, "width", 0) or 0) * (getattr(img, "height", 0) or 0),
+    )
+    return best.url if hasattr(best, "url") else str(best)

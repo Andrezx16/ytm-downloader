@@ -167,6 +167,24 @@ export function readTags(path: string, signal?: AbortSignal): Promise<Record<str
   });
 }
 
+export interface EnrichDeezerRequest {
+  matches: MatchCandidate[];
+  selected_index: number;
+}
+
+export interface EnrichDeezerResponse {
+  match: MatchCandidate;
+  warning: string | null;
+}
+
+export function enrichDeezer(params: EnrichDeezerRequest, signal?: AbortSignal): Promise<EnrichDeezerResponse> {
+  return request<EnrichDeezerResponse>("/pipeline/enrich-deezer", {
+    method: "POST",
+    body: JSON.stringify(params),
+    signal,
+  });
+}
+
 export function getFolders(path: string, signal?: AbortSignal): Promise<FolderBrowseResponse> {
   const params = new URLSearchParams({ path });
   return request<FolderBrowseResponse>(`/folders?${params}`, { signal });

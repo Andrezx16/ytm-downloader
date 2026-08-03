@@ -570,6 +570,21 @@ async def read_tags(request: ReadTagsRequest) -> dict[str, str]:
     return read_all_tags(request.path)
 
 
+class EnrichDeezerRequest(BaseModel):
+    matches: list[dict[str, Any]]
+    selected_index: int
+
+
+@router.post("/pipeline/enrich-deezer")
+async def enrich_deezer(request: EnrichDeezerRequest) -> Any:
+    logger.info("pipeline_enrich_deezer index=%d", request.selected_index)
+    match, warning = await app.state.pipeline.enrich_deezer_details(
+        request.matches,  # type: ignore[arg-type]
+        request.selected_index,
+    )
+    return {"match": match, "warning": warning}
+
+
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str) -> JobResponse:
     job = app.state.job_manager.get(job_id)
