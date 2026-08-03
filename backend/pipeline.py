@@ -107,12 +107,31 @@ class MetadataPipeline:
             elapsed_time=elapsed_time,
         )
 
-    async def analyze_stream(self, path: str | Path) -> AsyncGenerator[dict, None]:
-        """Stream per-provider results, then final scored list."""
+    async def analyze_stream(
+        self, path: str | Path, overrides: dict[str, str] | None = None,
+    ) -> AsyncGenerator[dict, None]:
+        """Stream per-provider results, then final scored list.
+
+        If *overrides* is provided the matcher uses those values (title,
+        artist, …) instead of reading them from the file.  The response
+        still includes the original file_info so the UI can populate the
+        edit form.
+        """
         file_path = Path(path)
         file_info = read_file_info(file_path)
 
-        async for event in find_matches_stream(file_info, self._providers):
+        # Build the FileInfo the matcher will use
+        if overrides:
+            search_info = FileInfo(
+                title=overrides.get("title", file_info.title),
+                artist=overrides.get("artist", file_info.artist),
+                album=overrides.get("album", file_info.album),
+                duration_ms=file_info.duration_ms,
+            )
+        else:
+            search_info = file_info
+
+        async for event in find_matches_stream(search_info, self._providers):
             if event["event"] == "complete":
                 matches = event["all_matches"]
                 warnings: list[str] = []

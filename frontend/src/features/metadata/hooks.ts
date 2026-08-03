@@ -120,14 +120,14 @@ export function useMetadataFlow() {
 
   // --- Core async analysis loop (NO React effect triggers this) ---
 
-  const analyzeEntry = useCallback(async (entry: QueueEntry, controller: AbortController): Promise<boolean> => {
+  const analyzeEntry = useCallback(async (entry: QueueEntry, controller: AbortController, overrides?: { title?: string; artist?: string; album?: string }): Promise<boolean> => {
     entry.status = "analyzing";
     entry.error = null;
     entry.loadingProviders = new Set();
     setQueue((prev) => [...prev]);
 
     try {
-      for await (const event of analyzeStream({ path: entry.file.path }, controller.signal)) {
+      for await (const event of analyzeStream({ path: entry.file.path, overrides }, controller.signal)) {
         if (controller.signal.aborted) return false;
 
         if (event.event === "provider") {
@@ -483,10 +483,18 @@ export function useMetadataFlow() {
     selectMutation.reset();
     writeReset();
 
-    analyzeEntry(entry, controller).then(() => {
-      if (savedFields && entry.fields === null) {
+    // Build overrides from user-edited fields so matcher searches
+    // using the modified values instead of re-reading the file.
+    const overrides = savedFields
+      ? { title: savedFields.title, artist: savedFields.artist, album: savedFields.album }
+      : undefined;
+
+    analyzeEntry(entry, controller, overrides).then(() => {
+      // Restore saved fields so user sees their edits, not the re-analysis results
+      if (savedFields) {
         entry.fields = savedFields;
         entry.manualEdit = true;
+        entry.selectedIndex = -1;
       }
       setQueue([...queueRef.current]);
     });

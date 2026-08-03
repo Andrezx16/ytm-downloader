@@ -29,6 +29,7 @@ export interface ScanFile {
 
 export interface AnalyzeRequest {
   path: string;
+  overrides?: { title?: string; artist?: string; album?: string };
 }
 
 export interface FileInfo {

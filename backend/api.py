@@ -74,6 +74,7 @@ class PlaylistDownloadRequest(BaseModel):
 
 class PipelineAnalyzeRequest(BaseModel):
     path: str
+    overrides: dict[str, str] | None = None
 
 
 class PipelineEnrichRequest(BaseModel):
@@ -490,7 +491,7 @@ async def analyze_stream(request: PipelineAnalyzeRequest) -> StreamingResponse:
 
     async def _event_generator():
         try:
-            async for event in app.state.pipeline.analyze_stream(request.path):
+            async for event in app.state.pipeline.analyze_stream(request.path, overrides=request.overrides):
                 yield json.dumps(event) + "\n"
         except Exception as exc:
             msg = str(exc)
