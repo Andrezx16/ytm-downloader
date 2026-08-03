@@ -1,4 +1,4 @@
-import { Menu, X } from "lucide-react";
+import { Menu, Music2, X } from "lucide-react";
 import { Navigation } from "./Navigation";
 
 interface SidebarProps {
@@ -27,7 +27,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       >
         <div className="flex h-14 items-center justify-between border-b border-border px-4">
           {!collapsed && (
-            <span className="text-lg font-semibold">YTM Downloader</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <Music2 className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              <span className="text-base font-semibold truncate">YTM Downloader</span>
+            </div>
           )}
           <button
             onClick={onToggle}
@@ -48,3 +51,4 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     </>
   );
 }
+

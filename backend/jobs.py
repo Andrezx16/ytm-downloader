@@ -32,7 +32,7 @@ class Job:
     state: JobState = JobState.QUEUED
     progress: float = 0.0
     message: str = ""
-    created_at: float = field(default_factory=datetime.now().timestamp)
+    created_at: float = field(default_factory=lambda: datetime.now().timestamp())
     started_at: float | None = None
     finished_at: float | None = None
     result: Any = None

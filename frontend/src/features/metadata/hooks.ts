@@ -514,6 +514,10 @@ export function useMetadataFlow() {
     });
   }, [files]);
 
+  const handleDeselectAll = useCallback(() => {
+    setSelectedIndices(new Set());
+  }, []);
+
   const handleBack = useCallback(() => {
     writeReset();
     selectMutation.reset();
@@ -566,6 +570,7 @@ export function useMetadataFlow() {
     handleStartQueue,
     handleSelectFile,
     handleSelectAll,
+    handleDeselectAll,
     handleSkip,
     handleWriteAndNext,
     handleBack,

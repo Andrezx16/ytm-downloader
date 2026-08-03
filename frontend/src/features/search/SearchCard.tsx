@@ -17,11 +17,11 @@ export function SearchCard({
   onDownload,
 }: SearchCardProps) {
   return (
-    <div className="flex items-center gap-4 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-accent/50">
+    <div className="flex items-center gap-4 rounded-lg border border-border bg-card p-4 transition-all duration-200 hover:bg-accent/50 hover:border-ring/40 hover:shadow-sm">
       <img
         src={result.thumbnail_url}
         alt=""
-        className="size-12 rounded object-cover"
+        className="size-12 rounded-md object-cover shadow-sm"
         aria-hidden="true"
       />
       <div className="min-w-0 flex-1">
@@ -30,12 +30,12 @@ export function SearchCard({
           {result.artist}
         </p>
       </div>
-      <span className="text-xs text-muted-foreground">
+      <span className="text-xs text-muted-foreground tabular-nums">
         {formatDuration(result.duration_seconds)}
       </span>
       <button
         onClick={() => onDownload(result)}
-        className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all duration-150 hover:bg-primary hover:text-primary-foreground hover:scale-110 active:scale-95"
         aria-label={`Download ${result.title}`}
       >
         <Download className="size-4" aria-hidden="true" />
@@ -43,3 +43,4 @@ export function SearchCard({
     </div>
   );
 }
+

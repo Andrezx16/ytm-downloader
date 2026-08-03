@@ -28,11 +28,6 @@ from jobs import Job, JobManager, JobState, TERMINAL_STATES
 from pipeline import MetadataPipeline
 from playlist_downloader import PlaylistDownloader, PlaylistDownloadOptions
 
-logger = logging.getLogger(__name__)
-
-
-# --- Auth ---
-
 
 logger = logging.getLogger(__name__)
 
@@ -628,6 +623,7 @@ async def job_events(job_id: str) -> StreamingResponse:
     async def _event_generator():  # type: ignore[no-untyped-def]
         loop = asyncio.get_running_loop()
         queue, unsubscribe = job.subscribe(loop)
+        terminal_values = {s.value for s in TERMINAL_STATES}
         
         try:
             # Yield initial state immediately
@@ -643,7 +639,6 @@ async def job_events(job_id: str) -> StreamingResponse:
                 yield f"data: {data}\n\n"
                 
                 # Terminate stream if job is in a terminal state
-                terminal_values = {s.value for s in TERMINAL_STATES}
                 if snapshot["state"] in terminal_values:
                     break
         finally:

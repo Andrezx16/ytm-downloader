@@ -24,19 +24,20 @@ export function MetadataPage() {
     handleStartQueue,
     handleSelectFile,
     handleSelectAll,
+    handleDeselectAll,
     handleSkip,
     handleWriteAndNext,
     handleBack,
     handleSelectCandidate,
     handleSelectNone,
     handleRescan,
-    isManualEdit,
     isSelecting,
     selectError,
     handleSetFields,
     isWriting,
     writeError,
   } = useMetadataFlow();
+
 
   const folderHistory = useFolderHistory("metadata");
 
@@ -83,6 +84,7 @@ export function MetadataPage() {
               selectedIndices={selectedIndices}
               onSelectFile={handleSelectFile}
               onSelectAll={handleSelectAll}
+              onDeselectAll={handleDeselectAll}
               onStartQueue={handleStartQueue}
               onBack={handleBack}
               isLoading={isScanning}

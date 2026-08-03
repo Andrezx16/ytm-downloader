@@ -1,56 +1,62 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 import type { JobRecord } from "./types";
 
-interface JobsStore {
-  jobs: Map<string, JobRecord>;
+// --- Internal store state ---
+
+const _jobs = new Map<string, JobRecord>();
+const _jobIds = new Set<string>();
+let _listeners: Array<() => void> = [];
+
+function _emit() {
+  for (const fn of _listeners) fn();
 }
 
-const store: JobsStore = { jobs: new Map() };
-let listeners: Array<() => void> = [];
-
-function emit() {
-  for (const fn of listeners) fn();
-}
+// --- Mutations ---
 
 export function addJob(job: JobRecord) {
-  store.jobs.set(job.id, job);
-  emit();
+  _jobs.set(job.id, job);
+  _jobIds.add(job.id);
+  _emit();
 }
 
 export function updateJob(id: string, patch: Partial<JobRecord>) {
-  const job = store.jobs.get(id);
+  const job = _jobs.get(id);
   if (!job) return;
   Object.assign(job, patch);
-  emit();
+  _emit();
 }
 
 export function removeJob(id: string) {
-  store.jobs.delete(id);
-  emit();
+  _jobs.delete(id);
+  _jobIds.delete(id);
+  _emit();
 }
+
+// --- Read helpers ---
 
 export function getJobSnapshot(id: string): JobRecord | undefined {
-  return store.jobs.get(id);
+  return _jobs.get(id);
 }
 
-export function getAllJobIds(): Set<string> {
-  return new Set(store.jobs.keys());
+/** Returns the internal Set directly — callers must not mutate it. */
+export function getAllJobIds(): ReadonlySet<string> {
+  return _jobIds;
 }
 
 export function onStoreChange(fn: () => void): () => void {
-  listeners.push(fn);
+  _listeners.push(fn);
   return () => {
-    listeners = listeners.filter((l) => l !== fn);
+    _listeners = _listeners.filter((l) => l !== fn);
   };
 }
 
-function buildSorted(): JobRecord[] {
-  return Array.from(store.jobs.values()).sort(
-    (a, b) => b.created_at - a.created_at,
-  );
+// --- Derived / sorted snapshot ---
+
+function _buildSorted(): JobRecord[] {
+  return Array.from(_jobs.values()).sort((a, b) => b.created_at - a.created_at);
 }
 
-function metaFingerprint(meta: Record<string, unknown>): string {
+function _metaFingerprint(meta: Record<string, unknown>): string {
   const ct = meta.current_track as Record<string, unknown> | undefined;
   return [
     meta.song_percent ?? "",
@@ -62,37 +68,43 @@ function metaFingerprint(meta: Record<string, unknown>): string {
   ].join(":");
 }
 
-function sortedKey(jobs: JobRecord[]): string {
+function _sortedKey(jobs: JobRecord[]): string {
   let key = "";
   for (const j of jobs) {
-    key += `${j.id}:${j.state}:${j.progress}:${metaFingerprint(j.metadata)};`;
+    key += `${j.id}:${j.state}:${j.progress}:${_metaFingerprint(j.metadata)};`;
   }
   return key;
 }
 
-export function useJobsStore(): JobRecord[] {
-  const [state, setState] = useState<JobRecord[]>(buildSorted);
-  const prevKeyRef = useRef(sortedKey(state));
+// Stable snapshot reference: only replaced when the fingerprint changes.
+let _cachedSorted: JobRecord[] = [];
+let _cachedKey = "";
 
-  const subscribe = useCallback(() => {
-    const listener = () => {
-      const next = buildSorted();
-      const key = sortedKey(next);
-      if (key !== prevKeyRef.current) {
-        prevKeyRef.current = key;
-        setState(next);
-      }
-    };
-    listeners.push(listener);
-    return () => {
-      listeners = listeners.filter((fn) => fn !== listener);
-    };
-  }, []);
-
-  useEffect(() => {
-    const unsub = subscribe();
-    return unsub;
-  }, [subscribe]);
-
-  return state;
+function _getSnapshot(): JobRecord[] {
+  const next = _buildSorted();
+  const key = _sortedKey(next);
+  if (key !== _cachedKey) {
+    _cachedKey = key;
+    _cachedSorted = next;
+  }
+  return _cachedSorted;
 }
+
+function _subscribe(cb: () => void): () => void {
+  _listeners.push(cb);
+  return () => {
+    _listeners = _listeners.filter((fn) => fn !== cb);
+  };
+}
+
+// --- Hook ---
+
+/**
+ * Returns the sorted list of job records, re-rendering only when
+ * the fingerprint actually changes. Uses useSyncExternalStore (React 18)
+ * for concurrency-safe subscription.
+ */
+export function useJobsStore(): JobRecord[] {
+  return useSyncExternalStore(_subscribe, _getSnapshot);
+}
+

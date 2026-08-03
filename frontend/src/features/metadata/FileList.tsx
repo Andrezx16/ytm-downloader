@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { Music, ArrowLeft, CheckSquare, Square, Play, ArrowUp, ArrowDown } from "lucide-react";
 import type { ScanFile } from "@/api/pipeline";
 import type { ApiError } from "@/api/errors";
@@ -12,6 +12,7 @@ interface FileListProps {
   selectedIndices: Set<number>;
   onSelectFile: (index: number) => void;
   onSelectAll: () => void;
+  onDeselectAll: () => void;
   onStartQueue: () => void;
   onBack: () => void;
   isLoading?: boolean;
@@ -42,6 +43,7 @@ export function FileList({
   selectedIndices,
   onSelectFile,
   onSelectAll,
+  onDeselectAll,
   onStartQueue,
   onBack,
   isLoading,
@@ -49,6 +51,14 @@ export function FileList({
 }: FileListProps) {
   const [sortBy, setSortBy] = useState<SortBy>("modified");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const draggingRef = useRef(false);
+  const dragStartRef = useRef<number | null>(null);
+  const dragSelectModeRef = useRef(true);
+  const didDragRef = useRef(false);
+  const selectedRef = useRef(selectedIndices);
+  const listRef = useRef<HTMLDivElement>(null);
+  selectedRef.current = selectedIndices;
 
   const sortedFiles = useMemo(() => {
     const indexed = files.map((file, i) => ({ file, originalIndex: i }));
@@ -62,6 +72,37 @@ export function FileList({
     });
     return indexed;
   }, [files, sortBy, sortDir]);
+
+  const handleDragStart = useCallback((index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    dragStartRef.current = index;
+    didDragRef.current = false;
+    dragSelectModeRef.current = !selectedRef.current.has(index);
+    onSelectFile(index);
+  }, [onSelectFile]);
+
+  const handleDragEnter = useCallback((index: number) => {
+    if (!draggingRef.current) return;
+    const isCurrentlySelected = selectedRef.current.has(index);
+    const wantsSelect = dragSelectModeRef.current;
+    if (wantsSelect && !isCurrentlySelected) {
+      onSelectFile(index);
+      didDragRef.current = true;
+    } else if (!wantsSelect && isCurrentlySelected) {
+      onSelectFile(index);
+      didDragRef.current = true;
+    }
+  }, [onSelectFile]);
+
+  useEffect(() => {
+    const handleMouseUp = () => {
+      draggingRef.current = false;
+      dragStartRef.current = null;
+    };
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => document.removeEventListener("mouseup", handleMouseUp);
+  }, []);
 
   const toggleSort = (by: SortBy) => {
     if (sortBy === by) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -151,19 +192,29 @@ export function FileList({
         ))}
       </div>
 
-      {/* Select all / selection info */}
+      {/* Select all / Deselect all */}
       <div className="flex items-center justify-between shrink-0">
-        <button
-          onClick={onSelectAll}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-        >
-          {allSelected ? (
-            <CheckSquare className="size-4" aria-hidden="true" />
-          ) : (
-            <Square className="size-4" aria-hidden="true" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={allSelected ? onDeselectAll : onSelectAll}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            {allSelected ? (
+              <CheckSquare className="size-4" aria-hidden="true" />
+            ) : (
+              <Square className="size-4" aria-hidden="true" />
+            )}
+            {allSelected ? "Deselect all" : "Select all"}
+          </button>
+          {someSelected && !allSelected && (
+            <button
+              onClick={onDeselectAll}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              Deselect all
+            </button>
           )}
-          {allSelected ? "Deselect all" : "Select all"}
-        </button>
+        </div>
         {someSelected && (
           <p className="text-xs text-muted-foreground">
             {selectedIndices.size} selected
@@ -171,14 +222,15 @@ export function FileList({
         )}
       </div>
 
-      {/* File list — scrollable */}
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
+      {/* File list — scrollable, drag-to-select */}
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 select-none">
         {sortedFiles.map(({ file, originalIndex }) => {
           const isSelected = selectedIndices.has(originalIndex);
           return (
             <button
               key={file.path}
-              onClick={() => onSelectFile(originalIndex)}
+              onMouseDown={(e) => handleDragStart(originalIndex, e)}
+              onMouseEnter={() => handleDragEnter(originalIndex)}
               className={`flex items-center gap-3 rounded-md border p-3 text-left text-sm transition-colors ${
                 isSelected
                   ? "border-primary bg-primary/5"
