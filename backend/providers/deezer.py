@@ -22,7 +22,19 @@ class DeezerProvider(MusicProvider):
         self._client = httpx.AsyncClient(base_url=BASE_URL, timeout=10.0)
 
     async def search(self, title: str, artist: str, limit: int = 5) -> list[MatchCandidate]:
-        params = {"q": f'track:"{title}" artist:"{artist}"', "limit": limit}
+        # Strict: track:"title" artist:"artist"
+        candidates = await self._do_search(
+            f'track:"{title}" artist:"{artist}"', limit
+        )
+        if candidates:
+            return candidates
+
+        # Fallback: free-text query (handles parens, remix tags, etc.)
+        logger.info("Deezer strict query returned 0, trying free-text fallback")
+        return await self._do_search(f"{title} {artist}", limit)
+
+    async def _do_search(self, query: str, limit: int) -> list[MatchCandidate]:
+        params = {"q": query, "limit": limit}
 
         try:
             resp = await self._client.get("/search", params=params)
@@ -39,7 +51,6 @@ class DeezerProvider(MusicProvider):
             primary_artist = track.get("artist", {}).get("name", "")
             track_id = track.get("id")
 
-            # Fetch /track/{id} to get full contributor list
             artist_str = primary_artist
             if track_id:
                 detail = await self._get_track_detail(track_id)
