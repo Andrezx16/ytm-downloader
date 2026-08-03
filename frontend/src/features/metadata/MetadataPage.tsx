@@ -28,6 +28,9 @@ export function MetadataPage() {
     handleWriteAndNext,
     handleBack,
     handleSelectCandidate,
+    handleSelectNone,
+    handleRescan,
+    isManualEdit,
     isSelecting,
     selectError,
     handleSetFields,
@@ -43,9 +46,9 @@ export function MetadataPage() {
   };
 
   return (
-    <Page>
-      <div className="flex flex-col gap-6">
-        <div className="flex items-center gap-3">
+    <Page className="h-full flex flex-col overflow-hidden">
+      <div className="flex flex-col gap-6 flex-1 min-h-0 overflow-hidden">
+        <div className="shrink-0 flex items-center gap-3">
           <Tag className="size-5 text-muted-foreground" aria-hidden="true" />
           <h1 className="text-2xl font-semibold">Metadata</h1>
         </div>
@@ -73,23 +76,25 @@ export function MetadataPage() {
 
         {/* Step 2a: File list with multi-select */}
         {step === "scan" && files.length > 0 && (
-          <FileList
-            files={files}
-            folderPath={folderPath}
-            selectedIndices={selectedIndices}
-            onSelectFile={handleSelectFile}
-            onSelectAll={handleSelectAll}
-            onStartQueue={handleStartQueue}
-            onBack={handleBack}
-            isLoading={isScanning}
-            error={scanError}
-          />
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <FileList
+              files={files}
+              folderPath={folderPath}
+              selectedIndices={selectedIndices}
+              onSelectFile={handleSelectFile}
+              onSelectAll={handleSelectAll}
+              onStartQueue={handleStartQueue}
+              onBack={handleBack}
+              isLoading={isScanning}
+              error={scanError}
+            />
+          </div>
         )}
 
         {/* Step 2b: Processing — current song form */}
         {step === "processing" && currentEntry && (
-          <>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
               <span className="truncate">{currentEntry.file.name}</span>
             </div>
             <MetadataForm
@@ -100,6 +105,9 @@ export function MetadataPage() {
               fields={currentFields}
               onFieldsChange={handleSetFields}
               onSelectCandidate={handleSelectCandidate}
+              onSelectNone={handleSelectNone}
+              onRescan={handleRescan}
+              isManualEdit={currentEntry.manualEdit}
               onWriteAndNext={handleWriteAndNext}
               onSkip={handleSkip}
               isSelecting={isSelecting}
@@ -110,7 +118,7 @@ export function MetadataPage() {
               queueTotal={queue.length}
               isCurrentLoading={currentEntry.status === "analyzing"}
             />
-          </>
+          </div>
         )}
 
         {/* Step 3: Done */}

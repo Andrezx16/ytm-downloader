@@ -541,6 +541,8 @@ async def scan_folder(request: PipelineScanRequest) -> list[dict[str, Any]]:
                 "path": str(f),
                 "name": f.name,
                 "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "ctime": stat.st_ctime,
             })
     return files
 
@@ -560,6 +562,16 @@ async def write_metadata(request: PipelineWriteRequest) -> Response:
     logger.info("pipeline_write path=%s", request.path)
     await app.state.pipeline.write_metadata(request.path, request.metadata)
     return Response(status_code=204)
+
+
+class ReadTagsRequest(BaseModel):
+    path: str
+
+
+@router.post("/pipeline/read-tags")
+async def read_tags(request: ReadTagsRequest) -> dict[str, str]:
+    from extractor import read_all_tags
+    return read_all_tags(request.path)
 
 
 @router.get("/jobs/{job_id}")

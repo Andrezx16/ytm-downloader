@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { scanFolder, analyzeStream, selectMatch, write } from "@/api/pipeline";
+import { scanFolder, analyzeStream, selectMatch, write, readTags } from "@/api/pipeline";
 import type { ScanFile, MatchCandidate } from "@/api/pipeline";
 import { ApiError } from "@/api/errors";
 import { useFolderHistory } from "@/hooks";
 import type { MetadataFields, MetadataStep, QueueEntry } from "./types";
-import { matchToFields, EMPTY_FIELDS } from "./types";
+import { matchToFields, EMPTY_FIELDS, fileInfoToFields } from "./types";
 
 const PREFETCH_DELAY_MS = 3000;
 
@@ -67,6 +67,7 @@ function createEntry(file: ScanFile): QueueEntry {
   return {
     file,
     status: "pending",
+    fileInfo: null,
     matches: [],
     loadingProviders: new Set<string>(),
     selectedIndex: null,
@@ -74,6 +75,7 @@ function createEntry(file: ScanFile): QueueEntry {
     lyrics: null,
     error: null,
     abortController: null,
+    manualEdit: false,
   };
 }
 
@@ -133,6 +135,7 @@ export function useMetadataFlow() {
           entry.matches = [...entry.matches, ...event.matches];
           setQueue((prev) => [...prev]);
         } else if (event.event === "complete") {
+          entry.fileInfo = event.file_info;
           entry.matches = event.all_matches;
           entry.loadingProviders = new Set();
         } else if (event.event === "error") {
@@ -299,7 +302,7 @@ export function useMetadataFlow() {
 
   const handleStartQueue = useCallback(() => {
     if (files.length === 0) return;
-    const indices = selectedIndices.size > 0 ? Array.from(selectedIndices).sort((a, b) => a - b) : files.map((_, i) => i);
+    const indices = selectedIndices.size > 0 ? Array.from(selectedIndices) : files.map((_, i) => i);
     const entries = indices.map((i) => createEntry(files[i]));
     processingRef.current = false;
     setQueue(entries);
@@ -402,6 +405,7 @@ export function useMetadataFlow() {
       if (!entry.matches[index]) return;
 
       entry.selectedIndex = index;
+      entry.manualEdit = false;
       setQueue([...q]);
 
       selectMutation.mutate(
@@ -421,6 +425,72 @@ export function useMetadataFlow() {
     },
     [selectMutation],
   );
+
+  const handleSelectNone = useCallback(async () => {
+    const q = queueRef.current;
+    const idx = currentIndexRef.current;
+    if (idx >= q.length) return;
+    const entry = q[idx];
+
+    entry.selectedIndex = -1;
+    entry.manualEdit = true;
+
+    if (entry.fileInfo) {
+      entry.fields = fileInfoToFields(entry.fileInfo);
+    } else {
+      try {
+        const tags = await readTags(entry.file.path);
+        entry.fields = {
+          title: tags.title ?? "",
+          artist: tags.artist ?? "",
+          album: tags.album ?? "",
+          album_artist: tags.album_artist ?? "",
+          genre: tags.genre ?? "",
+          year: tags.year ?? "",
+          track: tags.track ?? "",
+          disc: tags.disc ?? "",
+          lyrics: "",
+          cover_url: "",
+        };
+      } catch {
+        entry.fields = { ...EMPTY_FIELDS, title: entry.file.name.replace(/\.[^.]+$/, "") };
+      }
+    }
+
+    entry.lyrics = null;
+    entry.status = "ready";
+    setQueue([...q]);
+  }, []);
+
+  const handleRescan = useCallback(() => {
+    const q = queueRef.current;
+    const idx = currentIndexRef.current;
+    if (idx >= q.length) return;
+    const entry = q[idx];
+
+    const savedFields = entry.fields;
+    entry.selectedIndex = null;
+    entry.manualEdit = false;
+    entry.fields = null;
+    entry.lyrics = null;
+    entry.status = "pending";
+    entry.matches = [];
+    entry.loadingProviders = new Set();
+    setQueue([...q]);
+
+    const controller = new AbortController();
+    entry.abortController = controller;
+    selectMutation.reset();
+    writeReset();
+
+    analyzeEntry(entry, controller).then(() => {
+      if (savedFields && entry.fields === null) {
+        entry.fields = savedFields;
+        entry.manualEdit = true;
+      }
+      setQueue([...queueRef.current]);
+    });
+  }, [analyzeEntry, selectMutation, writeReset]);
 
   const handleSelectFile = useCallback(
     (fileIndex: number) => {
@@ -502,6 +572,9 @@ export function useMetadataFlow() {
 
     // Current song
     handleSelectCandidate,
+    handleSelectNone,
+    handleRescan,
+    isManualEdit: currentEntry?.manualEdit ?? false,
     isSelecting: selectMutation.isPending,
     selectError: selectMutation.error as ApiError | null,
     handleSetFields,

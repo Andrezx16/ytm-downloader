@@ -23,6 +23,8 @@ export interface ScanFile {
   path: string;
   name: string;
   size: number;
+  mtime: number;
+  ctime: number;
 }
 
 export interface AnalyzeRequest {
@@ -34,6 +36,11 @@ export interface FileInfo {
   artist: string;
   album: string;
   duration_ms: number;
+  year: string;
+  track: string;
+  disc: string;
+  album_artist: string;
+  genre: string;
 }
 
 export interface MatchCandidate {
@@ -147,6 +154,14 @@ export function write(params: WriteRequest, signal?: AbortSignal): Promise<void>
   return request<void>("/pipeline/write", {
     method: "POST",
     body: JSON.stringify(params),
+    signal,
+  });
+}
+
+export function readTags(path: string, signal?: AbortSignal): Promise<Record<string, string>> {
+  return request<Record<string, string>>("/pipeline/read-tags", {
+    method: "POST",
+    body: JSON.stringify({ path }),
     signal,
   });
 }

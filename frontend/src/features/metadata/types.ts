@@ -1,4 +1,4 @@
-import type { MatchCandidate, ScanFile } from "@/api/pipeline";
+import type { FileInfo, MatchCandidate, ScanFile } from "@/api/pipeline";
 
 export type MetadataStep = "scan" | "processing" | "done";
 
@@ -13,6 +13,7 @@ export type QueueEntryStatus =
 export interface QueueEntry {
   file: ScanFile;
   status: QueueEntryStatus;
+  fileInfo: FileInfo | null;
   matches: MatchCandidate[];
   loadingProviders: Set<string>;
   selectedIndex: number | null;
@@ -20,6 +21,7 @@ export interface QueueEntry {
   lyrics: string | null;
   error: string | null;
   abortController: AbortController | null;
+  manualEdit: boolean;
 }
 
 export interface MetadataFields {
@@ -60,5 +62,20 @@ export function matchToFields(match: MatchCandidate, lyrics?: string | null): Me
     disc: match.disc_number != null ? String(match.disc_number) : "",
     lyrics: lyrics ?? "",
     cover_url: match.cover_url ?? "",
+  };
+}
+
+export function fileInfoToFields(info: FileInfo): MetadataFields {
+  return {
+    title: info.title ?? "",
+    artist: info.artist ?? "",
+    album: info.album ?? "",
+    album_artist: info.album_artist ?? "",
+    genre: info.genre ?? "",
+    year: info.year ?? "",
+    track: info.track ?? "",
+    disc: info.disc ?? "",
+    lyrics: "",
+    cover_url: "",
   };
 }

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { ChevronDown, FolderOpen } from "lucide-react";
+import { ChevronDown, FolderOpen, X } from "lucide-react";
 import { useFolderHistory } from "@/hooks";
 import { FolderBrowser } from "@/components/FolderBrowser";
 import type { DownloadOptions } from "./types";
@@ -31,7 +31,7 @@ export function DownloadOptionsForm({
   namespace = "downloads",
   disabled = false,
 }: DownloadOptionsFormProps) {
-  const { history, add } = useFolderHistory(namespace);
+  const { history, add, remove, clear } = useFolderHistory(namespace);
   const [showHistory, setShowHistory] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -93,16 +93,34 @@ export function DownloadOptionsForm({
               </button>
             )}
             {showHistory && history.length > 0 && (
-              <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-md border border-border bg-popover py-1 shadow-md">
-                {history.map((path) => (
+              <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-md">
+                <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+                  <span className="text-xs text-muted-foreground">Recent</span>
                   <button
-                    key={path}
                     type="button"
-                    onClick={() => handleHistorySelect(path)}
-                    className="flex w-full items-center truncate px-3 py-1.5 text-sm text-popover-foreground hover:bg-accent hover:text-accent-foreground"
+                    onClick={() => { clear(); setShowHistory(false); }}
+                    className="text-xs text-muted-foreground hover:text-foreground"
                   >
-                    {path}
+                    Clear
                   </button>
+                </div>
+                {history.map((path) => (
+                  <div key={path} className="flex items-center px-3 py-1.5 hover:bg-accent hover:text-accent-foreground">
+                    <button
+                      type="button"
+                      onClick={() => { handleHistorySelect(path); }}
+                      className="flex-1 truncate text-left text-sm text-popover-foreground"
+                    >
+                      {path}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); remove(path); }}
+                      className="ml-2 shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

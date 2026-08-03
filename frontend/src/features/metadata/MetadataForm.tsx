@@ -24,6 +24,9 @@ interface MetadataFormProps {
   fields: MetadataFields;
   onFieldsChange: (fields: MetadataFields) => void;
   onSelectCandidate: (index: number) => void;
+  onSelectNone: () => void;
+  onRescan: () => void;
+  isManualEdit: boolean;
   onWriteAndNext: () => void;
   onSkip: () => void;
   isSelecting: boolean;
@@ -275,6 +278,9 @@ export function MetadataForm({
   fields,
   onFieldsChange,
   onSelectCandidate,
+  onSelectNone,
+  onRescan,
+  isManualEdit,
   onWriteAndNext,
   onSkip,
   isSelecting,
@@ -352,8 +358,8 @@ export function MetadataForm({
     );
   }
 
-  // No matches found and not loading
-  if (matches.length === 0 && !isLoading) {
+  // No matches found and not loading (and not in manual edit mode)
+  if (matches.length === 0 && !isLoading && selectedIndex === null) {
     return (
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
@@ -370,6 +376,13 @@ export function MetadataForm({
         <div className="flex flex-col items-center justify-center gap-3 py-16">
           <p className="text-sm text-muted-foreground">No candidates found</p>
         </div>
+        <button
+          type="button"
+          onClick={onSelectNone}
+          className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        >
+          None — edit manually
+        </button>
         <button
           type="button"
           onClick={onSkip}
@@ -434,6 +447,14 @@ export function MetadataForm({
             {selectError.message}
           </div>
         )}
+        <button
+          type="button"
+          onClick={onSelectNone}
+          disabled={isSelecting}
+          className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+        >
+          None — edit manually
+        </button>
         <button
           type="button"
           onClick={onSkip}
@@ -509,6 +530,17 @@ export function MetadataForm({
       {fieldInput("lyrics", "Lyrics", fields, onFieldsChange, disabled, { multiline: true })}
 
       <div className="flex items-center gap-3">
+        {isManualEdit && (
+          <button
+            type="button"
+            onClick={onRescan}
+            disabled={disabled || isWriting}
+            className="flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Zap className="size-4" />
+            Re-scan
+          </button>
+        )}
         <button
           type="submit"
           disabled={disabled || isWriting}

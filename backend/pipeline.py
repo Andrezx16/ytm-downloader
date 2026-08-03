@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence, cast
 
-from extractor import read_file_info
+from extractor import read_file_info, read_all_tags
 from lyrics import get_lyrics
 from matcher import FileInfo, find_matches, find_matches_stream, merge_missing_fields
 from providers.apple import AppleMusicProvider
@@ -122,12 +122,7 @@ class MetadataPipeline:
                 yield {
                     "event": "complete",
                     "source_file": str(file_path),
-                    "file_info": {
-                        "title": file_info.title,
-                        "artist": file_info.artist,
-                        "album": file_info.album,
-                        "duration_ms": file_info.duration_ms,
-                    },
+                    "file_info": read_all_tags(file_path),
                     "all_matches": matches,
                     "warnings": warnings,
                     "errors": errors,
