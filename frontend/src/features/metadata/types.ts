@@ -22,6 +22,7 @@ export interface QueueEntry {
   error: string | null;
   abortController: AbortController | null;
   manualEdit: boolean;
+  _savedFields?: MetadataFields | null;
 }
 
 export interface MetadataFields {

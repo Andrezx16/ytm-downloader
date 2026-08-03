@@ -435,7 +435,11 @@ export function useMetadataFlow() {
     entry.selectedIndex = -1;
     entry.manualEdit = true;
 
-    if (entry.fileInfo) {
+    // Restore fields from a previous re-scan if available
+    if (entry._savedFields) {
+      entry.fields = entry._savedFields;
+      delete entry._savedFields;
+    } else if (entry.fileInfo) {
       entry.fields = fileInfoToFields(entry.fileInfo);
     } else {
       try {
@@ -490,12 +494,11 @@ export function useMetadataFlow() {
       : undefined;
 
     analyzeEntry(entry, controller, overrides).then(() => {
-      // Restore saved fields so user sees their edits, not the re-analysis results
-      if (savedFields) {
-        entry.fields = savedFields;
-        entry.manualEdit = true;
-        entry.selectedIndex = -1;
-      }
+      // Re-scan done: show candidate list. If user clicks "None" again,
+      // handleSelectNone will restore savedFields via entry._savedFields.
+      entry.status = entry.matches.length > 0 ? "ready" : "error";
+      if (entry.matches.length === 0) entry.error = "No candidates found";
+      if (savedFields) entry._savedFields = savedFields;
       setQueue([...queueRef.current]);
     });
   }, [analyzeEntry, selectMutation, writeReset]);
