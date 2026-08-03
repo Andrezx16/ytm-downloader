@@ -346,15 +346,20 @@ def merge_missing_fields(
     merged: MatchCandidate = dict(chosen)  # type: ignore[assignment]
     others = [c for c in all_candidates if c is not chosen]
 
-    # Upgrade artist if another candidate has a more complete version
+    # Upgrade artist if another candidate has a superset of the same artists
     # (e.g. chosen="Pressure 9X19", other="Pressure 9X19, YOVNGCHIMI")
     chosen_artist = (merged.get("artist") or "").strip().lower()
     if chosen_artist:
+        chosen_tokens = set(chosen_artist.split(","))
         for other in others:
             if (other.get("confidence") or 0.0) < MERGE_MIN_CONFIDENCE:
                 continue
             other_artist = (other.get("artist") or "").strip().lower()
-            if other_artist and chosen_artist in other_artist and chosen_artist != other_artist:
+            if not other_artist or other_artist == chosen_artist:
+                continue
+            other_tokens = set(other_artist.split(","))
+            # Upgrade if other contains all chosen tokens AND has extras
+            if chosen_tokens < other_tokens:
                 merged["artist"] = other["artist"]  # type: ignore[literal-required]
                 break
 

@@ -36,42 +36,67 @@ class DeezerProvider(MusicProvider):
 
         for track in data.get("data", []):
             album = track.get("album", {})
+            primary_artist = track.get("artist", {}).get("name", "")
+            track_id = track.get("id")
+
+            # Fetch /track/{id} to get full contributor list
+            artist_str = primary_artist
+            if track_id:
+                detail = await self._get_track_detail(track_id)
+                if detail:
+                    artist_str = detail["artist"]
+
             candidates.append(
                 self._empty_candidate(
-                    source_id=str(track.get("id")) if track.get("id") else None,
+                    source_id=str(track_id) if track_id else None,
                     title=track.get("title", ""),
-                    artist=track.get("artist", {}).get("name", ""),
+                    artist=artist_str,
                     album=album.get("title", ""),
-                    album_artist=track.get("artist", {}).get("name"),
+                    album_artist=primary_artist,
                     cover_url=album.get("cover_xl") or album.get("cover_big"),
                     duration_ms=(track.get("duration") or 0) * 1000,
-                    # NOTA: track_position/disk_number NO vienen en /search,
-                    # solo en el endpoint de detalle — ver get_full_details().
                 )
             )
 
         return candidates
 
-    async def get_full_details(self, track_id: str) -> dict | None:
-        """
-        Trae detalle completo de UN track por id — incluye track_position,
-        disk_number e isrc, que /search no devuelve. Pensado para llamarse
-        solo sobre el candidato que el usuario ya eligió, no sobre los 5
-        resultados de cada búsqueda (evita gastar llamadas de más).
-        """
+    async def _get_track_detail(self, track_id: int) -> dict | None:
+        """Fetch /track/{id} and return artist string + extra fields."""
         try:
             resp = await self._client.get(f"/track/{track_id}")
             resp.raise_for_status()
         except httpx.HTTPError as e:
-            logger.warning("Deezer get_full_details falló para id=%s: %s", track_id, e)
+            logger.debug("Deezer _get_track_detail falló para id=%s: %s", track_id, e)
             return None
 
         data = resp.json()
+        contributors = data.get("contributors") or []
+        if len(contributors) > 1:
+            artist = ", ".join(c.get("name", "") for c in contributors if c.get("name"))
+        else:
+            artist = data.get("artist", {}).get("name", "")
+
         return {
+            "artist": artist,
             "track_number": data.get("track_position"),
             "disc_number": data.get("disk_number"),
             "isrc": data.get("isrc"),
             "year": _extract_year(data.get("release_date")),
+        }
+
+    async def get_full_details(self, track_id: str) -> dict | None:
+        """
+        Trae detalle completo de UN track por id — incluye track_position,
+        disk_number, isrc, year y contributors.
+        """
+        detail = await self._get_track_detail(int(track_id))
+        if not detail:
+            return None
+        return {
+            "track_number": detail["track_number"],
+            "disc_number": detail["disc_number"],
+            "isrc": detail["isrc"],
+            "year": detail["year"],
         }
 
     async def aclose(self) -> None:

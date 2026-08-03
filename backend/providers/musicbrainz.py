@@ -63,7 +63,7 @@ class MusicBrainzProvider(MusicProvider):
                 self._empty_candidate(
                     source_id=rec.get("id"),
                     title=rec.get("title", ""),
-                    artist=artist_credit[0].get("name", ""),
+                    artist=", ".join(a.get("name", "") for a in artist_credit if a.get("name")),
                     album=release.get("title", ""),
                     year=_extract_year(release.get("date")),
                     isrc=(rec.get("isrcs") or [None])[0],
