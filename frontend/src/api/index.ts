@@ -1,9 +1,9 @@
 export { ApiError } from "./errors";
 export { request } from "./client";
-export { search } from "./search";
+export { search, getVideoInfo } from "./search";
 export { download, openFolder } from "./download";
 export { getPlaylist, downloadPlaylist } from "./playlist";
-export { analyze, enrich, write, scanFolder, selectMatch, getFolders, analyzeStream, readTags, enrichDeezer } from "./pipeline";
+export { analyze, enrich, write, scanFolder, selectMatch, getFolders, analyzeStream, readTags, readFileLyrics, enrichDeezer } from "./pipeline";
 export { getJob, cancelJob, pauseJob, resumeJob, subscribeJob } from "./jobs";
 export { getAuthStatus, importCookies, removeCookies } from "./auth";
 

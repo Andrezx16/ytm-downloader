@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { scanFolder, analyzeStream, selectMatch, write, readTags, enrichDeezer } from "@/api/pipeline";
+import { scanFolder, analyzeStream, selectMatch, write, readTags, readFileLyrics, enrichDeezer } from "@/api/pipeline";
 import type { ScanFile, MatchCandidate } from "@/api/pipeline";
 import { ApiError } from "@/api/errors";
 import { useFolderHistory } from "@/hooks";
@@ -39,7 +39,9 @@ export function useWriteMetadata() {
     (path: string, fields: MetadataFields) => {
       const metadata: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(fields)) {
-        if (value !== "") {
+        if (key === "lyrics") {
+          metadata["lyrics"] = value;
+        } else if (value !== "") {
           if (key === "year" || key === "track" || key === "disc") {
             const n = Number(value);
             if (!isNaN(n)) metadata[key === "track" ? "track_number" : key === "disc" ? "disc_number" : key] = n;
@@ -73,6 +75,7 @@ function createEntry(file: ScanFile): QueueEntry {
     selectedIndex: null,
     fields: null,
     lyrics: null,
+    fileLyrics: null,
     error: null,
     abortController: null,
     manualEdit: false,
@@ -397,7 +400,7 @@ export function useMetadataFlow() {
   }, [isWriting]);
 
   const handleSelectCandidate = useCallback(
-    (index: number) => {
+    async (index: number) => {
       const q = queueRef.current;
       const idx = currentIndexRef.current;
       if (idx >= q.length) return;
@@ -408,14 +411,19 @@ export function useMetadataFlow() {
       entry.manualEdit = false;
       setQueue([...q]);
 
+      // Read existing lyrics from the file in parallel with select
+      const fileLyricsPromise = readFileLyrics(entry.file.path).catch(() => ({ lyrics: null as string | null }));
+
       selectMutation.mutate(
         { path: entry.file.path, matches: entry.matches, selected_index: index },
         {
-          onSuccess: (data) => {
+          onSuccess: async (data) => {
             const e = queueRef.current[idx];
             if (e) {
               e.fields = matchToFields(data.match, data.lyrics);
               e.lyrics = data.lyrics;
+              const { lyrics } = await fileLyricsPromise;
+              e.fileLyrics = lyrics && lyrics.length > 0 ? lyrics : null;
               e.status = "ready";
               setQueue([...queueRef.current]);
             }
@@ -492,12 +500,20 @@ export function useMetadataFlow() {
           year: tags.year ?? "",
           track: tags.track ?? "",
           disc: tags.disc ?? "",
-          lyrics: "",
+          lyrics: tags.lyrics ?? "",
           cover_url: "",
         };
       } catch {
         entry.fields = { ...EMPTY_FIELDS, title: entry.file.name.replace(/\.[^.]+$/, "") };
       }
+    }
+
+    // Read existing lyrics from the file
+    try {
+      const { lyrics } = await readFileLyrics(entry.file.path);
+      entry.fileLyrics = lyrics && lyrics.length > 0 ? lyrics : null;
+    } catch {
+      entry.fileLyrics = null;
     }
 
     entry.lyrics = null;
@@ -610,6 +626,7 @@ export function useMetadataFlow() {
     currentLoadingProviders: currentEntry?.loadingProviders ?? new Set<string>(),
     currentFields: currentEntry?.fields ?? EMPTY_FIELDS,
     currentLyrics: currentEntry?.lyrics ?? null,
+    currentFileLyrics: currentEntry?.fileLyrics ?? null,
 
     // Scan
     isScanning: scanMutation.isPending,

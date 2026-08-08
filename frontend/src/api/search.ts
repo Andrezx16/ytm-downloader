@@ -31,3 +31,11 @@ export function search(params: SearchRequest, signal?: AbortSignal): Promise<Sea
     signal,
   });
 }
+
+export function getVideoInfo(params: { url: string }, signal?: AbortSignal): Promise<SearchResult> {
+  return request<SearchResult>("/video-info", {
+    method: "POST",
+    body: JSON.stringify(params),
+    signal,
+  });
+}

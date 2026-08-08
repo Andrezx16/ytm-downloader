@@ -27,6 +27,41 @@ def read_file_info(path: str | Path) -> FileInfo:
     return FileInfo(title=title, artist=artist, album=album, duration_ms=duration_ms)
 
 
+def _read_lyrics(path: Path) -> str:
+    """Read lyrics tag from a file, falling back to raw tags for formats
+    (like M4A) where Mutagen's easy mode doesn't map the lyrics key."""
+    audio = MutagenFile(path, easy=True)
+    if audio is not None:
+        easy_val = audio.get("lyrics")
+        if easy_val:
+            return easy_val[0]
+
+    raw = MutagenFile(path)
+    if raw is None or not hasattr(raw, "tags") or raw.tags is None:
+        return ""
+
+    # M4A: \xa9lyr
+    val = raw.tags.get("\xa9lyr")
+    if val:
+        return str(val)
+
+    # MP3: USLT
+    val = raw.tags.get("USLT:und:''")
+    if val:
+        return str(val)
+    # Try without the description/specification
+    for key in raw.tags:
+        if key.startswith("USLT"):
+            return str(raw.tags[key])
+
+    # FLAC/OGG: lyrics
+    val = raw.tags.get("lyrics")
+    if val:
+        return str(val)
+
+    return ""
+
+
 def read_all_tags(path: str | Path) -> dict[str, str]:
     """Read all available metadata tags from a file for manual editing."""
     path = Path(path)
@@ -44,4 +79,5 @@ def read_all_tags(path: str | Path) -> dict[str, str]:
         "disc": (audio.get("discnumber") or [""])[0].split("/")[0],
         "album_artist": (audio.get("albumartist") or [""])[0],
         "genre": (audio.get("genre") or [""])[0],
+        "lyrics": _read_lyrics(path),
     }

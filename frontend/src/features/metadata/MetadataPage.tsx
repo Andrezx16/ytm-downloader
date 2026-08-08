@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { Tag } from "lucide-react";
 import { Page } from "@/components/layout/Page";
 import { FolderPicker } from "./FilePicker";
@@ -17,6 +18,7 @@ export function MetadataPage() {
     currentLoadingProviders,
     currentFields,
     currentLyrics,
+    currentFileLyrics,
     queue,
     isScanning,
     scanError,
@@ -40,6 +42,14 @@ export function MetadataPage() {
     writeError,
   } = useMetadataFlow();
 
+
+  const handleRemoveFileLyrics = useCallback(() => {
+    handleSetFields({ ...currentFields, lyrics: "" });
+    // Clear fileLyrics on the current entry directly
+    if (currentEntry) {
+      currentEntry.fileLyrics = null;
+    }
+  }, [handleSetFields, currentFields, currentEntry]);
 
   const folderHistory = useFolderHistory("metadata");
 
@@ -106,6 +116,8 @@ export function MetadataPage() {
               loadingProviders={currentLoadingProviders}
               selectedIndex={currentEntry.selectedIndex}
               lyricsFound={currentLyrics != null && currentLyrics.length > 0}
+              fileLyrics={currentFileLyrics}
+              onRemoveFileLyrics={handleRemoveFileLyrics}
               fields={currentFields}
               onFieldsChange={handleSetFields}
               onSelectCandidate={handleSelectCandidate}

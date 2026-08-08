@@ -8,6 +8,7 @@ import {
   FileX,
   Loader2,
   SkipForward,
+  Trash2,
   Zap,
 } from "lucide-react";
 import { CoverPicker } from "./CoverPicker";
@@ -21,6 +22,8 @@ interface MetadataFormProps {
   loadingProviders?: Set<string>;
   selectedIndex: number | null;
   lyricsFound: boolean | null;
+  fileLyrics: string | null;
+  onRemoveFileLyrics: () => void;
   fields: MetadataFields;
   onFieldsChange: (fields: MetadataFields) => void;
   onSelectCandidate: (index: number) => void;
@@ -277,6 +280,8 @@ export function MetadataForm({
   loadingProviders,
   selectedIndex,
   lyricsFound,
+  fileLyrics,
+  onRemoveFileLyrics,
   fields,
   onFieldsChange,
   onSelectCandidate,
@@ -531,7 +536,29 @@ export function MetadataForm({
         {fieldInput("disc", "Disc", fields, onFieldsChange, disabled, { placeholder: "1" })}
       </div>
 
-      {fieldInput("lyrics", "Lyrics", fields, onFieldsChange, disabled, { multiline: true })}
+      {fileLyrics && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-muted-foreground">
+              Existing lyrics from file
+            </label>
+            <button
+              type="button"
+              onClick={onRemoveFileLyrics}
+              disabled={disabled}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+            >
+              <Trash2 className="size-3" />
+              Remove
+            </button>
+          </div>
+          <div className="max-h-32 overflow-y-auto rounded-md border border-border bg-muted/50 px-3 py-2 text-sm whitespace-pre-wrap text-muted-foreground">
+            {fileLyrics}
+          </div>
+        </div>
+      )}
+
+      {fieldInput("lyrics", fileLyrics ? "Replace with" : "Lyrics", fields, onFieldsChange, disabled, { multiline: true })}
 
       <div className="flex items-center gap-3">
         {isManualEdit && (

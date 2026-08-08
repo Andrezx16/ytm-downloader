@@ -4,18 +4,31 @@ import { DownloadDialog } from "@/features/download";
 import { SearchBar } from "./SearchBar";
 import { SearchResults } from "./SearchResults";
 import { useSearch, useSearchHistory } from "./hooks";
+import { isYouTubeUrl } from "./utils";
 import type { SearchResult } from "./types";
 
 export function SearchPage() {
   const {
     search,
-    results,
-    isLoading,
-    error,
+    results: textResults,
+    isLoading: isTextLoading,
+    error: textError,
+    reset: resetText,
+    fetchVideoInfo,
+    videoInfoResult,
+    isFetchingVideoInfo,
+    videoInfoError,
   } = useSearch();
 
   const { history, add, remove, clear } = useSearchHistory();
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null);
+  const [searchMode, setSearchMode] = useState<"text" | "url">("text");
+
+  const isLoading = searchMode === "url" ? isFetchingVideoInfo : isTextLoading;
+  const error = searchMode === "url" ? videoInfoError : textError;
+  const results = searchMode === "url"
+    ? (videoInfoResult ? [videoInfoResult] : undefined)
+    : textResults;
 
   const state = useMemo(() => {
     if (isLoading) return "loading";
@@ -28,9 +41,16 @@ export function SearchPage() {
   const handleSearch = useCallback(
     (query: string) => {
       add(query);
-      search({ query });
+      if (isYouTubeUrl(query)) {
+        resetText();
+        setSearchMode("url");
+        fetchVideoInfo({ url: query });
+      } else {
+        setSearchMode("text");
+        search({ query });
+      }
     },
-    [add, search],
+    [add, search, resetText, fetchVideoInfo],
   );
 
   const handleDownload = useCallback(

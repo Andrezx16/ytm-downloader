@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { search, download } from "@/api";
+import { search, getVideoInfo, download } from "@/api";
 import { useLocalStorage } from "@/hooks";
 import type { SearchRequest } from "@/api/search";
 import type { DownloadRequest } from "@/api/download";
@@ -43,6 +43,10 @@ export function useSearch() {
     mutationFn: (params: SearchRequest) => search(params),
   });
 
+  const videoInfoMutation = useMutation({
+    mutationFn: (params: { url: string }) => getVideoInfo(params),
+  });
+
   const downloadMutation = useMutation({
     mutationFn: (params: DownloadRequest) => download(params),
   });
@@ -53,6 +57,11 @@ export function useSearch() {
     isLoading: searchMutation.isPending,
     error: searchMutation.error as ApiError | null,
     reset: searchMutation.reset,
+
+    fetchVideoInfo: videoInfoMutation.mutate,
+    videoInfoResult: videoInfoMutation.data,
+    isFetchingVideoInfo: videoInfoMutation.isPending,
+    videoInfoError: videoInfoMutation.error as ApiError | null,
 
     download: downloadMutation.mutate,
     downloadResult: downloadMutation.data,

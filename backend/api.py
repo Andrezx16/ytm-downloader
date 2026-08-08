@@ -58,6 +58,10 @@ class DownloadRequest(BaseModel):
     embed_metadata: bool = True
 
 
+class VideoInfoRequest(BaseModel):
+    url: str
+
+
 class PlaylistRequest(BaseModel):
     url: str
 
@@ -424,6 +428,28 @@ async def search(request: SearchRequest) -> Any:
     return results
 
 
+@router.post("/video-info")
+async def video_info(request: VideoInfoRequest) -> Any:
+    logger.info("video-info url=%s", request.url)
+    downloader = _make_downloader()
+    info = await asyncio.to_thread(downloader.get_video_info, request.url)
+    if info is None:
+        raise HTTPException(status_code=404, detail="Unable to extract video info")
+    return {
+        "video_id": info.video_id,
+        "title": info.title,
+        "artist": info.artist,
+        "url": info.url,
+        "thumbnail_url": info.thumbnail_url,
+        "duration_seconds": info.duration_seconds,
+        "album": info.album,
+        "uploader": info.uploader,
+        "channel": info.channel,
+        "search_position": None,
+        "source": "youtube",
+    }
+
+
 @router.post("/download")
 async def download(request: DownloadRequest) -> JobResponse:
     logger.info("download url=%s", request.url)
@@ -568,6 +594,18 @@ class ReadTagsRequest(BaseModel):
 async def read_tags(request: ReadTagsRequest) -> dict[str, str]:
     from extractor import read_all_tags
     return read_all_tags(request.path)
+
+
+class ReadLyricsRequest(BaseModel):
+    path: str
+
+
+@router.post("/pipeline/read-lyrics")
+async def read_lyrics(request: ReadLyricsRequest) -> dict[str, str | None]:
+    from extractor import _read_lyrics
+    from pathlib import Path
+    lyrics = _read_lyrics(Path(request.path))
+    return {"lyrics": lyrics or None}
 
 
 class EnrichDeezerRequest(BaseModel):

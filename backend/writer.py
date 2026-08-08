@@ -101,8 +101,11 @@ def _write_mp3(path: Path, meta: FinalMetadata, cover_bytes: Optional[bytes]) ->
         tags.setall("TRCK", [TRCK(encoding=3, text=str(meta["track_number"]))])
     if meta.get("disc_number"):
         tags.setall("TPOS", [TPOS(encoding=3, text=str(meta["disc_number"]))])
-    if meta.get("lyrics"):
-        tags.setall("USLT", [USLT(encoding=3, lang="und", desc="", text=meta["lyrics"])])
+    if "lyrics" in meta:
+        if meta["lyrics"]:
+            tags.setall("USLT", [USLT(encoding=3, lang="und", desc="", text=meta["lyrics"])])
+        else:
+            tags.delall("USLT")
     if cover_bytes:
         tags.setall(
             "APIC",
@@ -134,8 +137,11 @@ def _write_mp4(path: Path, meta: FinalMetadata, cover_bytes: Optional[bytes]) ->
         tags["trkn"] = [(meta["track_number"], 0)]
     if meta.get("disc_number"):
         tags["disk"] = [(meta["disc_number"], 0)]
-    if meta.get("lyrics"):
-        tags["\xa9lyr"] = [meta["lyrics"]]
+    if "lyrics" in meta:
+        if meta["lyrics"]:
+            tags["\xa9lyr"] = [meta["lyrics"]]
+        else:
+            tags.pop("\xa9lyr", None)
     if cover_bytes:
         tags["covr"] = [MP4Cover(cover_bytes, imageformat=MP4Cover.FORMAT_JPEG)]
 
@@ -164,8 +170,11 @@ def _write_flac(path: Path, meta: FinalMetadata, cover_bytes: Optional[bytes]) -
         audio["tracknumber"] = str(meta["track_number"])
     if meta.get("disc_number"):
         audio["discnumber"] = str(meta["disc_number"])
-    if meta.get("lyrics"):
-        audio["lyrics"] = meta["lyrics"]
+    if "lyrics" in meta:
+        if meta["lyrics"]:
+            audio["lyrics"] = meta["lyrics"]
+        else:
+            audio.pop("lyrics", None)
 
     if cover_bytes:
         audio.clear_pictures()

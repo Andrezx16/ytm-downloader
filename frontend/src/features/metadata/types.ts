@@ -19,6 +19,7 @@ export interface QueueEntry {
   selectedIndex: number | null;
   fields: MetadataFields | null;
   lyrics: string | null;
+  fileLyrics: string | null;
   error: string | null;
   abortController: AbortController | null;
   manualEdit: boolean;
@@ -76,7 +77,7 @@ export function fileInfoToFields(info: FileInfo): MetadataFields {
     year: info.year ?? "",
     track: info.track ?? "",
     disc: info.disc ?? "",
-    lyrics: "",
+    lyrics: info.lyrics ?? "",
     cover_url: "",
   };
 }

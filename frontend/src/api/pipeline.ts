@@ -42,6 +42,7 @@ export interface FileInfo {
   disc: string;
   album_artist: string;
   genre: string;
+  lyrics: string;
 }
 
 export interface MatchCandidate {
@@ -161,6 +162,14 @@ export function write(params: WriteRequest, signal?: AbortSignal): Promise<void>
 
 export function readTags(path: string, signal?: AbortSignal): Promise<Record<string, string>> {
   return request<Record<string, string>>("/pipeline/read-tags", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+    signal,
+  });
+}
+
+export function readFileLyrics(path: string, signal?: AbortSignal): Promise<{ lyrics: string | null }> {
+  return request<{ lyrics: string | null }>("/pipeline/read-lyrics", {
     method: "POST",
     body: JSON.stringify({ path }),
     signal,
