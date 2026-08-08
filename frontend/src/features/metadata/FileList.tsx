@@ -60,6 +60,10 @@ export function FileList({
   const [sortBy, setSortBy] = useState<SortBy>("modified");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
+  useEffect(() => {
+    if (m3uOrder) setSortBy("m3u");
+  }, [m3uOrder]);
+
   const draggingRef = useRef(false);
   const dragStartRef = useRef<number | null>(null);
   const dragSelectModeRef = useRef(true);

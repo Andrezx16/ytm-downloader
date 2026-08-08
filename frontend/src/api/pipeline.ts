@@ -207,7 +207,10 @@ export function parseM3u(content: string): string[] {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
-    entries.push(trimmed);
+    const name = trimmed.includes("/") || trimmed.includes("\\")
+      ? trimmed.split(/[/\\]/).pop()!
+      : trimmed;
+    entries.push(name);
   }
   return entries;
 }
