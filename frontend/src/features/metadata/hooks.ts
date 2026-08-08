@@ -88,6 +88,10 @@ export function useMetadataFlow() {
   const [files, setFiles] = useState<ScanFile[]>([]);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
+  // M3U state
+  const [m3uOrder, setM3uOrder] = useState<string[] | null>(null);
+  const [m3uName, setM3uName] = useState<string | null>(null);
+
   // Queue state
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -599,6 +603,16 @@ export function useMetadataFlow() {
     setSelectedIndices(new Set());
   }, [writeReset, selectMutation]);
 
+  const handleSelectM3u = useCallback((name: string, order: string[]) => {
+    setM3uName(name);
+    setM3uOrder(order);
+  }, []);
+
+  const handleClearM3u = useCallback(() => {
+    setM3uName(null);
+    setM3uOrder(null);
+  }, []);
+
   const handleSetFields = useCallback((fields: MetadataFields) => {
     const q = queueRef.current;
     const idx = currentIndexRef.current;
@@ -632,6 +646,12 @@ export function useMetadataFlow() {
     isScanning: scanMutation.isPending,
     scanError: scanMutation.error as ApiError | null,
     handleScan,
+
+    // M3U
+    m3uOrder,
+    m3uName,
+    handleSelectM3u,
+    handleClearM3u,
 
     // Queue
     handleStartQueue,

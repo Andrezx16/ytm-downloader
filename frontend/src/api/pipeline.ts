@@ -199,6 +199,19 @@ export function getFolders(path: string, signal?: AbortSignal): Promise<FolderBr
   return request<FolderBrowseResponse>(`/folders?${params}`, { signal });
 }
 
+// --- M3U Parsing (client-side) ---
+
+export function parseM3u(content: string): string[] {
+  const lines = content.split(/\r?\n/);
+  const entries: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    entries.push(trimmed);
+  }
+  return entries;
+}
+
 // --- Streaming Types ---
 
 export interface ProviderDoneEvent {

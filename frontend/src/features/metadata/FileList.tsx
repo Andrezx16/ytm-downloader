@@ -1,9 +1,9 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { Music, ArrowLeft, CheckSquare, Square, Play, ArrowUp, ArrowDown } from "lucide-react";
+import { Music, ArrowLeft, CheckSquare, Square, Play, ArrowUp, ArrowDown, ListMusic, X } from "lucide-react";
 import type { ScanFile } from "@/api/pipeline";
 import type { ApiError } from "@/api/errors";
 
-type SortBy = "name" | "added" | "modified" | "size";
+type SortBy = "name" | "added" | "modified" | "size" | "m3u";
 type SortDir = "asc" | "desc";
 
 interface FileListProps {
@@ -17,6 +17,10 @@ interface FileListProps {
   onBack: () => void;
   isLoading?: boolean;
   error?: ApiError | null;
+  m3uOrder?: string[] | null;
+  m3uName?: string | null;
+  onSelectM3u?: () => void;
+  onClearM3u?: () => void;
 }
 
 function formatSize(bytes: number): string {
@@ -48,6 +52,10 @@ export function FileList({
   onBack,
   isLoading,
   error,
+  m3uOrder,
+  m3uName,
+  onSelectM3u,
+  onClearM3u,
 }: FileListProps) {
   const [sortBy, setSortBy] = useState<SortBy>("modified");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -62,16 +70,27 @@ export function FileList({
 
   const sortedFiles = useMemo(() => {
     const indexed = files.map((file, i) => ({ file, originalIndex: i }));
-    indexed.sort((a, b) => {
-      let cmp = 0;
-      if (sortBy === "name") cmp = a.file.name.localeCompare(b.file.name);
-      else if (sortBy === "added") cmp = a.file.ctime - b.file.ctime;
-      else if (sortBy === "modified") cmp = a.file.mtime - b.file.mtime;
-      else cmp = a.file.size - b.file.size;
-      return sortDir === "asc" ? cmp : -cmp;
-    });
+    if (sortBy === "m3u" && m3uOrder) {
+      const orderMap = new Map(m3uOrder.map((name, i) => [name.toLowerCase(), i]));
+      indexed.sort((a, b) => {
+        const aIdx = orderMap.get(a.file.name.toLowerCase());
+        const bIdx = orderMap.get(b.file.name.toLowerCase());
+        const aRank = aIdx !== undefined ? aIdx : Infinity;
+        const bRank = bIdx !== undefined ? bIdx : Infinity;
+        return aRank - bRank;
+      });
+    } else {
+      indexed.sort((a, b) => {
+        let cmp = 0;
+        if (sortBy === "name") cmp = a.file.name.localeCompare(b.file.name);
+        else if (sortBy === "added") cmp = a.file.ctime - b.file.ctime;
+        else if (sortBy === "modified") cmp = a.file.mtime - b.file.mtime;
+        else cmp = a.file.size - b.file.size;
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+    }
     return indexed;
-  }, [files, sortBy, sortDir]);
+  }, [files, sortBy, sortDir, m3uOrder]);
 
   const handleDragStart = useCallback((index: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -190,7 +209,50 @@ export function FileList({
             <SortIcon by={opt.value} />
           </button>
         ))}
+        {m3uOrder && (
+          <button
+            type="button"
+            onClick={() => toggleSort("m3u")}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
+              sortBy === "m3u"
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <ListMusic className="size-3" />
+            M3U
+            <SortIcon by="m3u" />
+          </button>
+        )}
       </div>
+
+      {/* M3U info bar */}
+      {m3uOrder && (
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-muted-foreground truncate">
+            M3U: {m3uName} ({m3uOrder.length} entries)
+          </span>
+          {onClearM3u && (
+            <button
+              type="button"
+              onClick={onClearM3u}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3" />
+            </button>
+          )}
+        </div>
+      )}
+      {!m3uOrder && onSelectM3u && (
+        <button
+          type="button"
+          onClick={onSelectM3u}
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ListMusic className="size-3" />
+          Load M3U
+        </button>
+      )}
 
       {/* Select all / Deselect all */}
       <div className="flex items-center justify-between shrink-0">

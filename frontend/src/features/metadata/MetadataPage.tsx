@@ -1,10 +1,11 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { Tag } from "lucide-react";
 import { Page } from "@/components/layout/Page";
 import { FolderPicker } from "./FilePicker";
 import { FileList } from "./FileList";
 import { MetadataForm } from "./MetadataForm";
 import { useMetadataFlow, useFolderHistory } from "./hooks";
+import { parseM3u } from "@/api/pipeline";
 
 export function MetadataPage() {
   const {
@@ -40,7 +41,26 @@ export function MetadataPage() {
     handleSetFields,
     isWriting,
     writeError,
+    m3uOrder,
+    m3uName,
+    handleSelectM3u,
+    handleClearM3u,
   } = useMetadataFlow();
+
+  const m3uInputRef = useRef<HTMLInputElement>(null);
+
+  const handleM3uFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      const entries = parseM3u(text);
+      handleSelectM3u(file.name, entries);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }, [handleSelectM3u]);
 
 
   const handleRemoveFileLyrics = useCallback(() => {
@@ -90,6 +110,13 @@ export function MetadataPage() {
         {/* Step 2a: File list with multi-select */}
         {step === "scan" && files.length > 0 && (
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <input
+              ref={m3uInputRef}
+              type="file"
+              accept=".m3u,.m3u8"
+              className="hidden"
+              onChange={handleM3uFile}
+            />
             <FileList
               files={files}
               folderPath={folderPath}
@@ -101,6 +128,10 @@ export function MetadataPage() {
               onBack={handleBack}
               isLoading={isScanning}
               error={scanError}
+              m3uOrder={m3uOrder}
+              m3uName={m3uName}
+              onSelectM3u={() => m3uInputRef.current?.click()}
+              onClearM3u={handleClearM3u}
             />
           </div>
         )}

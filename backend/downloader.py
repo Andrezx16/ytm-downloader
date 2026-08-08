@@ -7,6 +7,7 @@ the same normalized models for actual downloads.
 
 from __future__ import annotations
 
+import io
 import logging
 import re
 from dataclasses import dataclass
@@ -15,6 +16,11 @@ from typing import Any, Callable, Literal, Mapping, cast
 from urllib.parse import parse_qs, urlparse
 
 import yt_dlp
+from mutagen import File as MutagenFile
+from mutagen.flac import FLAC
+from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4, MP4Cover
+from PIL import Image
 from ytmusicapi import YTMusic
 
 logger = logging.getLogger(__name__)
@@ -507,6 +513,9 @@ class YoutubeMetadataDiscovery:
         if not filepath:
             filepath = str(output_path / f"{filename_base}.unknown")
 
+        if effective_audio_options.embed_thumbnail:
+            _crop_embedded_thumbnail(Path(filepath))
+
         return DownloadResult(
             video=resolved_video,
             filepath=filepath,
@@ -724,6 +733,76 @@ class YoutubeMetadataDiscovery:
                 continue
             songs.append(_search_result_from_ytmusic(item, search_position=index))
         return songs[:limit]
+
+
+def _crop_embedded_thumbnail(path: Path) -> None:
+    """Crop an embedded thumbnail to 1:1 if it is not already square.
+
+    Reads the cover art from the audio file, checks dimensions via PIL,
+    and if non-square, center-crops to a square.  Rewrites the tag in
+    place (MP3 APIC, M4A covr, FLAC pictures).
+    """
+    try:
+        suffix = path.suffix.lower()
+        cover_bytes: bytes | None = None
+
+        if suffix == ".mp3":
+            audio = MP3(str(path))
+            if audio.tags:
+                for key in audio.tags:
+                    if key.startswith("APIC"):
+                        cover_bytes = bytes(audio.tags[key].data)
+                        break
+        elif suffix in (".m4a", ".aac", ".mp4"):
+            audio = MP4(str(path))
+            if audio.tags and "covr" in audio.tags:
+                cover_bytes = bytes(audio.tags["covr"][0])
+        elif suffix == ".flac":
+            audio = FLAC(str(path))
+            if audio.pictures:
+                cover_bytes = audio.pictures[0].data
+        else:
+            return
+
+        if cover_bytes is None:
+            return
+
+        img = Image.open(io.BytesIO(cover_bytes))
+        w, h = img.size
+        if w == h:
+            return
+
+        side = min(w, h)
+        left = (w - side) // 2
+        top = (h - side) // 2
+        cropped = img.crop((left, top, left + side, top + side))
+
+        buf = io.BytesIO()
+        cropped.convert("RGB").save(buf, format="JPEG", quality=95)
+        new_bytes = buf.getvalue()
+
+        if suffix == ".mp3":
+            from mutagen.id3 import APIC
+            tags = audio.tags
+            tags.delall("APIC")
+            tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=new_bytes))
+            audio.save()
+        elif suffix in (".m4a", ".aac", ".mp4"):
+            audio.tags["covr"] = [MP4Cover(new_bytes, imageformat=MP4Cover.FORMAT_JPEG)]
+            audio.save()
+        elif suffix == ".flac":
+            audio.clear_pictures()
+            from mutagen.flac import Picture
+            pic = Picture()
+            pic.data = new_bytes
+            pic.type = 3
+            pic.mime = "image/jpeg"
+            audio.add_picture(pic)
+            audio.save()
+
+        logger.debug("Cropped thumbnail to 1:1 for %s", path.name)
+    except Exception as exc:
+        logger.debug("Thumbnail crop skipped for %s: %s", path.name, exc)
 
 
 class YoutubeDownloader(YoutubeMetadataDiscovery):

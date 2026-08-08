@@ -1,6 +1,7 @@
 httpx>=0.27
 rapidfuzz>=3.9
 mutagen>=1.47
+Pillow>=10.0
 syncedlyrics>=0.3
 yt-dlp>=2024.8.6
 watchdog>=4.0
